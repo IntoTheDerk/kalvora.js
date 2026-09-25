@@ -1,0 +1,66 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "allowImportingTsExtensions": false,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "noEmit": false,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "outDir": "./dist",
+    "rootDir": "./",
+    "strict": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "experimentalDecorators": true,
+    "emitDecoratorMetadata": true,
+    "paths": {
+      "@/*": ["./src/*"],
+      "@types/*": ["./src/types/*"],
+      "@wallet/*": ["./src/wallet-creation/*"],
+      "@coin-txn/*": ["./src/coin-txn/*"],
+      "@grpc/*": ["./src/grpc/*"],
+      "@shared/*": ["./src/shared/*"],
+      "@api/*": ["./src/api/*"],
+      "@test-utils/*": ["./src/test-utils/*"],
+      "@proto/*": ["./proto/*"]
+    }
+  },
+  "include": [
+    "src/**/*",
+    "index.ts",
+    "proto/generated/**/*.ts",
+    "proto/generated/**/*.d.ts"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/examples/**/*.ts",
+    "**/test/**/*.ts",
+    "src/test-utils/**",
+    "src/api/validator/nonce/examples/basic-example.ts",
+    "src/wallet-creation/examples/wallet-storage-manager.ts",
+    "proto/**/*.js",
+    "proto/**/*.proto"
+  ],
+  "ts-node": {
+    "esm": true,
+    "experimentalSpecifierResolution": "node"
+  }
+}

@@ -1,0 +1,39 @@
+{
+  "name": "kalvora-proto",
+  "version": "1.0.0",
+  "description": "Kalvora wire protocol definitions (synchronised from kalvora-indexer) and TypeScript codegen",
+  "type": "module",
+  "files": [
+    "*.proto",
+    "buf.yaml",
+    "buf.gen.yaml",
+    "build.ts",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsx build.ts",
+    "clean": "rimraf generated"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.0.0",
+    "@bufbuild/protoc-gen-es": "^2.0.0"
+  },
+  "devDependencies": {
+    "@bufbuild/buf": "^1.58.0",
+    "rimraf": "^5.0.0",
+    "tsx": "^4.20.6",
+    "typescript": "^5.0.0"
+  },
+  "keywords": [
+    "protobuf",
+    "grpc",
+    "kalvora",
+    "blockchain"
+  ],
+  "author": "intothederk",
+  "license": "Apache-2.0"
+}

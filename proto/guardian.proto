@@ -1,0 +1,266 @@
+syntax = "proto3";
+
+import "google/protobuf/timestamp.proto";
+
+package zera_guardian;
+
+option optimize_for = SPEED;
+option go_package = "indexer/proto/guardian";
+
+service GuardianService{
+    rpc GetPayload(PayloadRequest) returns (PayloadResponse);
+    rpc SearchPayload(SearchPayloadRequest) returns (SearchPayloadResponse);
+    rpc AuthenticateGuardian(GuardianPayloadRequest) returns (GuardianPayloadResponse);
+    // Phase 1 of two-phase price consensus: collect prices without signing
+    rpc GetPriceData(PriceDataRequest) returns (PriceDataResponse);
+    rpc GetMintInfo(GetMintInfoRequest) returns (GetMintInfoResponse);
+}
+enum NETWORK_TYPE{
+    ZERA = 0;
+    SOLANA = 1;
+}
+message GetMintInfoRequest{
+    repeated string contract_ids = 1;
+}
+message GetMintInfoResponse{
+    repeated MintInfo mint_infos = 1;
+}
+message MintInfo{
+    string contract_id = 1;
+    string mint_address = 2;
+}
+message CreateSolanaContract{
+    string zera_contract_id = 1;
+    string decimals = 2;
+    string name = 3;
+    string symbol = 4;
+
+}
+message ExistingContracts{
+    NETWORK_TYPE network_type = 1;
+    string zera_contract_id = 2;
+    string solana_mint_address = 3;
+    string name = 4;
+    string symbol = 5;
+    string decimals = 6;
+    string uri = 7;
+    optional string authorized_address = 8;
+}
+message SearchPayloadRequest{
+    google.protobuf.Timestamp search_start_time = 1;
+}
+message SearchPayloadResponse{
+    repeated ZeraPayload zera_payloads = 1;
+    repeated SolanaPayload solana_payloads = 2;
+}
+
+message PayloadRequest{
+   string payload_id = 1;         //txn_hash for zera, tx_signature for solana
+   NETWORK_TYPE network_type = 2; //did the txn happen on zera or solana
+}
+message PayloadResponse{
+    oneof payload{
+        ZeraPayload zera_payload = 1;
+        SolanaPayload solana_payload = 2;
+    }
+}
+
+message SolanaPayload{
+    oneof payload{
+        SolanaContractPayload contract_payload = 1;
+        SolanaMintPayload mint_payload = 2;
+        SolanaReleasePayload release_payload = 3;
+        SolanaPausePayload pause_payload = 4;
+        SolanaUpgradeBridgePayload upgrade_bridge_payload = 5;
+        SolanaUpdateGuardianKeysPayload update_guardian_keys_payload = 6;
+        SolanaRegisterPayload register_payload = 11;
+    }
+
+    string signed_hash = 7;
+    repeated string signatures = 8;
+    repeated string public_keys = 9;
+    google.protobuf.Timestamp timestamp = 10;
+}
+
+message ZeraPayload{
+    oneof payload{
+        ZeraContractPayload contract_payload = 1;
+        ZeraMintPayload mint_payload = 2;
+        ZeraReleasePayload release_payload = 3;
+    }
+
+    string signed_hash = 4;
+    repeated string signatures = 5;
+    repeated string public_keys = 6;
+}
+
+message ZeraRefundPayload{
+    string zera_contract_id = 1;
+    string amount = 2;
+    string zera_wallet_address = 3;
+    string tx_signature = 4;
+}
+message ZeraContractPayload{
+    string symbol = 1;
+    string name = 2;
+    string denomination = 3;
+    string zera_wallet_address = 4;
+    string amount = 5;
+    string solana_mint_address = 6;
+    string uri = 7;
+    string solana_authorized_address = 8;
+    string tx_signature = 9;
+    string usd_price = 10;
+}
+
+message ZeraMintPayload{
+    string solana_mint_address = 1;
+    string amount = 2;
+    string zera_wallet_address = 3;
+    string tx_signature = 4;
+    string usd_price = 5;
+}
+message ZeraReleasePayload{
+    string zera_contract_id = 1;
+    string amount = 2;
+    string zera_wallet_address = 3;
+    string tx_signature = 4;
+}
+
+message SolanaContractPayload{
+    string zera_contract_id = 1;
+    string solana_wallet_address = 2;
+    uint64 amount = 3;
+    string decimals = 4;
+    string name = 5;
+    string symbol = 6;
+    string uri = 7;
+    string txn_hash = 8;
+    uint64 usd_amount = 9;
+    uint64 liquidity_usd = 10;
+    int32 tier = 11;
+}
+
+message SolanaMintPayload{
+    string zera_contract_id = 1;
+    string solana_wallet_address = 2;
+    uint64 amount = 3;
+    string txn_hash = 4;
+    uint64 usd_amount = 5;
+    uint64 liquidity_usd = 6;
+    int32 tier = 7;
+}
+
+message SolanaReleasePayload{
+
+    string zera_contract_id = 1;
+    uint64 amount = 2;
+    string solana_wallet_address = 3;
+    string solana_mint_address = 4;
+    string txn_hash = 5;
+    uint64 usd_amount = 6;
+    uint64 liquidity_usd = 7;
+    int32 tier = 8;
+}
+
+message SolanaPausePayload{
+    
+    uint32 pause_level = 1;
+    uint64 pause_duration = 2;
+    string txn_hash = 3;
+}
+
+message SolanaUpgradeBridgePayload{
+    string buffer_address = 1;
+    string spill_address = 2;
+    bool token_bridge = 3;
+    string txn_hash = 4;
+}
+
+message SolanaUpdateGuardianKeysPayload{
+    repeated string guardian_keys = 1;
+    uint32 threshold = 2;
+    string txn_hash = 3;
+}
+
+message ManageBridgePayload{
+    map<string, google.protobuf.Timestamp> bridge_payloads = 1;
+}
+message AllGuardianAuth{
+    repeated GuardianAuth guardians = 1;
+    uint32 threshold = 2;
+}
+message GuardianAuth{
+    string zera_key = 1;
+    string solana_key = 2;
+    string host = 3;
+    string port = 4;
+}
+
+message SolanaRegisterPayload{
+    string solana_mint_id = 1;
+    uint64 price_usd = 2;
+    uint64 liquidity_usd = 3;
+    int32 tier = 4;
+    string tx_signature = 5;
+}
+
+message GuardianPayloadRequest{
+    string zera_key = 1;
+    string solana_key = 2;
+    string payload_hash = 3;
+    string signature = 4;
+    bool is_solana = 5;
+    string txn_hash = 6;  // Transaction signature for DB lookup
+    optional PriceData price_data = 7;  // Cached price data from requesting guardian
+}
+message GuardianPayloadResponse{
+    string zera_key = 1;
+    string solana_key = 2;
+    string payload_hash = 3;
+    string signature = 4;
+    string txn_hash = 5;  // Transaction signature for DB lookup
+    optional PriceData price_data = 6;  // Price data from responding guardian (may differ - use lowest timestamp)
+}
+
+message GuardianPayload{
+    oneof payload{
+        SolanaPayload solana_payload = 1;
+        ZeraPayload zera_payload = 2;
+    }
+    string payload_hash = 3;
+    repeated GuardianPayloadResponse guardians = 4;
+    google.protobuf.Timestamp timestamp = 5;
+}
+
+// Request for Phase 1 price discovery - get cached price without signing
+message PriceDataRequest {
+    string mint_address = 1;              // Token mint address to get price for
+    string txn_hash = 2;                  // Transaction signature for context
+}
+
+// Response for Phase 1 price discovery
+message PriceDataResponse {
+    bool has_price = 1;                   // Whether this guardian has cached price data
+    PriceData price_data = 2;             // The cached price data (if has_price is true)
+    string zera_key = 3;                  // Guardian's public key for verification
+}
+
+// Price data from Jupiter for guardian consensus
+// Shared between guardians with expiry so all caches expire together
+// If price data changes mid-signing, process must restart (scrap old signatures, resign new data)
+message PriceData {
+    string mint_address = 1;              // Token mint address
+    uint64 usd_price = 2;                 // Price in USD (scaled by USD_MULTIPLIER)
+    uint64 liquidity = 3;                 // Liquidity in USD (scaled by USD_MULTIPLIER)
+    uint64 jupiter_block_id = 4;          // Solana slot when Jupiter recorded this (priceBlockId)
+    uint64 jupiter_timestamp = 5;         // Jupiter's updatedAt as Unix timestamp (seconds since epoch)
+    uint64 expiry_time = 6;               // Unix timestamp when this cache expires (shared across guardians)
+}
+
+message GuardianUpdateState{
+    string guardian_keys = 1;
+    uint32 threshold = 2;
+    uint64 timestamp = 3;
+    string txn_hash = 4;
+}

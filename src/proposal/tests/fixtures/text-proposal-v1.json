@@ -1,0 +1,32 @@
+{
+  "schema": "kalvora-js-text-governance-proposal-v1-test-vector",
+  "sourceIntentSchema": "knight-armor-kalvora-governance-proposal-intent-v1",
+  "sourceIntentDigest": "1084ec401f37e2f4511d74442b9bc67181c2965384d2ac1882a36812fe04b3b7",
+  "publicKey": "A_AKpo7NMd3JhGAonxXJXuG8XgDXA8jZGikK6UaHDYxksU",
+  "input": {
+    "contractId": "ZIP0000",
+    "title": "Authorize treasury diversification",
+    "synopsis": "A privacy-preserving Knight Armor evidence commitment for governance review.",
+    "body": "Merkle root: a60340a22f182636a8d9fbb2a88e817172e153ead9c773c8a4be4c84d3fa6442\nMerkle specification: knight-armor-merkle-v3\nDocument count: 1\nPrivacy: A submitted proposal publicly discloses its title, governance contract, proposing wallet, synopsis, Merkle root, specification, document count, and network transaction metadata. Document details remain off chain."
+  },
+  "constructionContext": {
+    "schema": "kalvora-governance-construction-context-v1",
+    "source": "kalvora-indexer",
+    "network": "kalvora:protonet",
+    "contractId": "ZIP0000",
+    "walletAddress": "AKpo7NMd3JhGAonxXJXuG8XgDXA8jZGikK6UaHDYxksU",
+    "governanceType": "staged",
+    "eligibleProposalInstrumentIds": ["KAL111112"],
+    "policyVersion": "kalvora-governance-policy-v1",
+    "observedAt": "2026-07-25T09:20:00.000Z",
+    "expiresAt": "2026-07-25T09:25:00.000Z",
+    "observedAtHeight": 123456
+  },
+  "base": {
+    "nonce": "7",
+    "timestamp": "2026-07-25T01:02:03.456Z",
+    "feeId": "KAL111112",
+    "feeAmountParts": "1234"
+  },
+  "expectedProtobufHex": "0a470a240a22415f8a8badcac64981a43af2b790201a9f2bb1644f02b8219f45414763df6f8c63031a0c088b9690d306108084b8d9012204313233342a094b414c313131313132500712075a4950303030301a22417574686f72697a6520747265617375727920646976657273696669636174696f6e224c4120707269766163792d70726573657276696e67204b6e696768742041726d6f722065766964656e636520636f6d6d69746d656e7420666f7220676f7665726e616e6365207265766965772e2aea024d65726b6c6520726f6f743a20613630333430613232663138323633366138643966626232613838653831373137326531353365616439633737336338613462653463383464336661363434320a4d65726b6c652073706563696669636174696f6e3a206b6e696768742d61726d6f722d6d65726b6c652d76330a446f63756d656e7420636f756e743a20310a507269766163793a2041207375626d69747465642070726f706f73616c207075626c69636c7920646973636c6f73657320697473207469746c652c20676f7665726e616e636520636f6e74726163742c2070726f706f73696e672077616c6c65742c2073796e6f707369732c204d65726b6c6520726f6f742c2073706563696669636174696f6e2c20646f63756d656e7420636f756e742c20616e64206e6574776f726b207472616e73616374696f6e206d657461646174612e20446f63756d656e742064657461696c732072656d61696e206f666620636861696e2e"
+}

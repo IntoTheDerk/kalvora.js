@@ -1,0 +1,124 @@
+{
+  "name": "kalvora.js",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Kalvora network (beta): wallets, transaction builders, signing, and typed gRPC-Web query clients",
+  "main": "dist/index.cjs",
+  "react-native": "dist/index.cjs",
+  "module": "dist/index.mjs",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "scripts": {
+    "build": "tsx scripts/build.ts",
+    "build:fast": "tsx scripts/build.ts --fast",
+    "build:clean": "tsx scripts/build.ts clean",
+    "build:validate": "tsx scripts/build.ts validate",
+    "build:validate-bundles": "tsx scripts/validate-bundles.ts",
+    "build:proto": "cd proto && npm run build",
+    "proto:install": "cd proto && npm install",
+    "proto:sync": "tsx scripts/sync-protos.ts",
+    "proto:check": "tsx scripts/sync-protos.ts --check",
+    "type-check": "tsc --noEmit -p tsconfig.json",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "lint:check": "eslint . --max-warnings 0",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:ui": "vitest --ui",
+    "test:coverage": "vitest run --coverage",
+    "test:live": "vitest run src/query/tests/live.test.ts",
+    "docs": "typedoc",
+    "validate": "npm run type-check && npm run lint:check && npm test",
+    "prepublishOnly": "npm run validate && npm run build",
+    "deploy": "tsx publishing/deploy.ts",
+    "deploy:patch": "tsx publishing/deploy.ts patch",
+    "deploy:minor": "tsx publishing/deploy.ts minor",
+    "deploy:major": "tsx publishing/deploy.ts major",
+    "deploy:help": "tsx publishing/deploy.ts help",
+    "unpublish": "tsx publishing/unpublish.ts",
+    "deprecate": "tsx publishing/deprecate.ts",
+    "delete-package": "tsx publishing/delete-package.ts"
+  },
+  "keywords": [
+    "blockchain",
+    "connectrpc",
+    "cryptography",
+    "grpc",
+    "grpc-web",
+    "kalvora",
+    "protobuf",
+    "sdk",
+    "typescript",
+    "wallet"
+  ],
+  "author": "intothederk",
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/intothederk/kalvora.js.git"
+  },
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org",
+    "access": "public"
+  },
+  "homepage": "https://github.com/intothederk/kalvora.js#readme",
+  "bugs": {
+    "url": "https://github.com/intothederk/kalvora.js/issues"
+  },
+  "files": [
+    "dist/",
+    "README.md",
+    "CHANGELOG.md",
+    "LICENSE",
+    "NOTICE"
+  ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "react-native": "./dist/index.cjs",
+      "import": "./dist/index.mjs",
+      "require": "./dist/index.cjs",
+      "default": "./dist/index.cjs"
+    },
+    "./dist/*": "./dist/*"
+  },
+  "overrides": {
+    "text-encoding": "npm:fast-text-encoding@1.0.6"
+  },
+  "dependencies": {
+    "@bufbuild/protobuf": "^2.11.0",
+    "@connectrpc/connect": "^2.1.1",
+    "@connectrpc/connect-web": "^2.1.1",
+    "@noble/curves": "^2.0.1",
+    "@noble/hashes": "^2.0.0",
+    "bip39": "^3.1.0",
+    "bs58": "^6.0.0",
+    "decimal.js": "^10.6.0"
+  },
+  "optionalDependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "devDependencies": {
+    "@bufbuild/protoc-gen-es": "^2.11.0",
+    "@eslint/js": "^9.37.0",
+    "@types/node": "^20.19.21",
+    "@typescript-eslint/eslint-plugin": "^8.46.0",
+    "@typescript-eslint/parser": "^8.46.0",
+    "@vitest/coverage-v8": "^3.2.4",
+    "@vitest/ui": "^3.2.4",
+    "chalk": "^5.6.2",
+    "esbuild": "^0.27.3",
+    "eslint": "^9.37.0",
+    "eslint-plugin-import": "^2.32.0",
+    "eslint-plugin-n": "^17.23.1",
+    "eslint-plugin-promise": "^7.2.1",
+    "tsx": "^4.20.6",
+    "typedoc": "^0.28.20",
+    "typescript": "5.9",
+    "vite-tsconfig-paths": "^5.1.4",
+    "vitest": "^3.2.4"
+  }
+}

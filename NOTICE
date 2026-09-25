@@ -1,0 +1,10 @@
+Kalvora.js
+Copyright 2026 intothederk
+
+This project includes code derived from zera.js, an Apache-2.0-licensed
+JavaScript SDK originally published at:
+https://github.com/zera-os/zera.js
+
+The Kalvora protobuf definitions in this distribution are synchronized from
+the Kalvora indexer project and retain the protocol's wire package names for
+compatibility with Kalvora services.

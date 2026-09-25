@@ -1,0 +1,14 @@
+node_modules/
+**/node_modules/
+dist/
+proto/generated/
+.git/
+coverage/
+**/coverage/
+.vitest/
+**/.vitest/
+.env
+.env.*
+npm-debug.log*
+*.log
+.DS_Store
