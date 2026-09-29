@@ -23,7 +23,7 @@ npm run validate   # type-check + lint (zero warnings) + tests
 
 ## Making Changes
 
-1. **Fork the repo** and create a branch from `main`. Use a descriptive name like `fix/nonce-retry-logic` or `feat/staking-rewards`.
+1. **Create a branch from `main`.** Collaborators with write access push branches to this repository; everyone else forks it first. Use a descriptive name like `fix/nonce-retry-logic` or `feat/staking-rewards`. Nobody pushes to `main` directly.
 
 2. **Write your code.** The codebase is TypeScript with strict mode enabled. Follow the patterns you see in existing modules — each module lives in its own directory under `src/` with its own types, tests, and examples.
 
@@ -66,7 +66,15 @@ Keep PRs focused. One feature or fix per PR is easier to review than a grab-bag 
 
 In your PR description, explain **what** changed and **why**. If there's a related issue, reference it. If the change affects the public API, call that out explicitly.
 
-All PRs should pass linting, type-checking, and tests before requesting review.
+All PRs should pass linting, type-checking, and tests before requesting review. CI runs `validate` and `build` on Node 20 and 24 for every PR.
+
+Title the PR in [Conventional Commits](https://www.conventionalcommits.org/) style (`fix(query): ...`, `feat!: ...`). PRs are **squash-merged**, so the PR title and description become the single commit on `main`; your branch's individual commits don't need to be tidy, and the branch is deleted after merge. To catch up with `main`, merge or rebase your branch as you prefer, but never force-push `main`.
+
+Don't add AI attribution: no `Co-Authored-By:` trailers naming an AI tool and no "Generated with ..." lines in commits or PR descriptions. CI rejects PRs that contain them.
+
+## Releases
+
+Maintainers release from `main`: bump the version and CHANGELOG in a PR, merge it, tag the merge commit `vX.Y.Z`, create the GitHub release, and publish to npm.
 
 ## Project Structure
 
@@ -101,7 +109,7 @@ When filing an issue, include:
 - Steps to reproduce
 - Node.js version and environment (Node, browser, React Native)
 
-If you're reporting a security vulnerability, **do not open a public issue**. Email the maintainers directly.
+If you're reporting a security vulnerability, **do not open a public issue**. Report it privately through the repository's **Security** tab ("Report a vulnerability").
 
 ## Becoming a Maintainer
 
