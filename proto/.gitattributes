@@ -1,0 +1,3 @@
+# The official Kalvora protos are committed byte-identical (CRLF line endings,
+# no trailing newline in txn.proto). Never convert line endings.
+*.proto -text
