@@ -92,8 +92,8 @@ export class GuardianQueryClient {
       throw new Error('mintAddress must be a non-empty string');
     }
     const response = await this.raw.getPriceData(create(PriceDataRequestSchema, { mintAddress, txnHash }));
-    // `zeraKey` is the generated name of the guardian proto's key field.
-    return { hasPrice: response.hasPrice, priceData: response.priceData, guardianKey: response.zeraKey };
+    // `kalKey` is the generated name of the guardian proto's `kal_key` field.
+    return { hasPrice: response.hasPrice, priceData: response.priceData, guardianKey: response.kalKey };
   }
 
   /**

@@ -33,8 +33,8 @@ redacted, and public hosts can never be downgraded to HTTP implicitly.
 
 Kalvora nodes expose short paths; request URLs are rewritten automatically:
 `kal_api.APIService → /api/`, `kal_txn.TXNService → /txn/`,
-`kal_validator.ValidatorService → /validator/`, and the guardian's
-`GuardianService` (its own proto package) `→ /guardian/`.
+`kal_validator.ValidatorService → /validator/`, and
+`kal_guardian.GuardianService → /guardian/`.
 
 ## Errors — `KalvoraRpcError`
 

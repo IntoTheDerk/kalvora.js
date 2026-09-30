@@ -77,7 +77,7 @@ export async function releaseKalvora(
   const guardianKeys = payload.publicKeys.join('|');
   
   const parameterValue = [
-    releasePayload.zeraContractId,       // contract_id (generated guardian proto field)
+    releasePayload.kalContractId,        // contract_id (generated guardian proto field)
     releasePayload.amount,               // amount
     toKalvoraAddress,                       // wallet_address
     releasePayload.txSignature,          // tx_signature
@@ -86,7 +86,7 @@ export async function releaseKalvora(
     guardianKeys                         // guardian_keys (pipe-separated)
   ].join(',');
   
-  const feeId = options.feeId || releasePayload.zeraContractId;
+  const feeId = options.feeId || releasePayload.kalContractId;
   
   return createBridgeTransaction(
     BRIDGE_FUNCTIONS.releaseKalvora,

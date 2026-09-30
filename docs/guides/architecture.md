@@ -58,12 +58,12 @@ accordingly:
 | `kal_api.APIService`             | `/api/`          |
 | `kal_txn.TXNService`             | `/txn/`          |
 | `kal_validator.ValidatorService` | `/validator/`    |
-| `GuardianService` (guardian package) | `/guardian/` |
+| `kal_guardian.GuardianService`   | `/guardian/`     |
 
 The protobuf package names come from the official Kalvora protos
-(`kal_txn`, `kal_validator`, `kal_api`). The bridge guardian service uses its
-own protobuf package, which has not been re-issued; the SDK names its
-Kalvora-side identifiers `NETWORK_TYPE_KALVORA` and `KalvoraGuardian*Payload`.
+(`kal_txn`, `kal_validator`, `kal_api`) and the bridge guardian proto
+(`kal_guardian`); the SDK names the guardian's Kalvora-side identifiers
+`NETWORK_TYPE_KALVORA` and `KalvoraGuardian*Payload`.
 The short `/api/`,
 `/txn/`, `/validator/` and `/guardian/` prefixes are Envoy route aliases: Envoy
 rewrites them to the fully qualified `/<package>.<Service>/<Method>` path, so

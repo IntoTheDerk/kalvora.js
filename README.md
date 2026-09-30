@@ -305,7 +305,7 @@ strings shared with wallet apps are exported as constants
 | Default endpoint | `https://kal-proto.visiondynamics.ch` (gRPC-Web over HTTPS, port 443; `KALVORA_PROTONET_ENDPOINT`) |
 | Network preset | `KALVORA_NETWORKS.protonet` (the `KalvoraClient` default) |
 | HD path | `m/44'/5258'/account'/change'/address'` (SLIP-44 coin type `5258`, every segment hardened; [derivation spec](./docs/guides/hd-derivation.md)) |
-| Protobuf packages | `kal_txn`, `kal_api`, `kal_validator` (official Kalvora protos); the bridge guardian service uses its own proto package |
+| Protobuf packages | `kal_txn`, `kal_api`, `kal_validator` (official Kalvora protos); `kal_guardian` (bridge guardian service) |
 
 ## Documentation
 

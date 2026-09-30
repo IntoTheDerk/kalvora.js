@@ -262,7 +262,7 @@ async function mintWrappedExample(txnHash: string) {
 
   console.log(`  Amount: ${contract.amount}`);
   console.log(`  Recipient: ${contract.solanaWalletAddress}`);
-  console.log(`  Contract: ${contract.zeraContractId}`);
+  console.log(`  Contract: ${contract.kalContractId}`);
   console.log(`  Name: ${contract.name} (${contract.symbol})`);
   console.log('');
 
@@ -271,7 +271,7 @@ async function mintWrappedExample(txnHash: string) {
     {
       amount: BigInt(contract.amount.toString()),
       recipient: contract.solanaWalletAddress,
-      contractId: contract.zeraContractId,
+      contractId: contract.kalContractId,
       decimals: parseInt(contract.decimals, 10),
       name: contract.name,
       symbol: contract.symbol,

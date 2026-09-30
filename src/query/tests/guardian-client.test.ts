@@ -48,7 +48,7 @@ describe('GuardianQueryClient', () => {
             payload: {
               case: 'solanaPayload',
               value: {
-                payload: { case: 'mintPayload', value: { zeraContractId: KALVORA_NATIVE_TOKEN, amount: 5n, txnHash: 'abc' } },
+                payload: { case: 'mintPayload', value: { kalContractId: KALVORA_NATIVE_TOKEN, amount: 5n, txnHash: 'abc' } },
                 signedHash: 'hash',
                 signatures: ['s1', 's2'],
                 publicKeys: ['k1', 'k2']
@@ -62,7 +62,7 @@ describe('GuardianQueryClient', () => {
       expect(response.payload.case).toBe('solanaPayload');
       if (response.payload.case !== 'solanaPayload') throw new Error('unreachable');
       expect(response.payload.value.signatures).toEqual(['s1', 's2']);
-      expect(response.payload.value.payload).toMatchObject({ case: 'mintPayload', value: { amount: 5n, zeraContractId: KALVORA_NATIVE_TOKEN } });
+      expect(response.payload.value.payload).toMatchObject({ case: 'mintPayload', value: { amount: 5n, kalContractId: KALVORA_NATIVE_TOKEN } });
     });
 
     it('sends NETWORK_TYPE_KALVORA', async () => {
@@ -100,7 +100,7 @@ describe('GuardianQueryClient', () => {
       const query = client({
         searchPayload: req => {
           request = req;
-          return { zeraPayloads: [{ signedHash: 'z1' }], solanaPayloads: [{ signedHash: 's1' }, { signedHash: 's2' }] };
+          return { kalPayloads: [{ signedHash: 'k1' }], solanaPayloads: [{ signedHash: 's1' }, { signedHash: 's2' }] };
         }
       });
       const since = new Date('2026-01-01T00:00:00.500Z');
@@ -108,7 +108,7 @@ describe('GuardianQueryClient', () => {
       expect(request).toMatchObject({
         searchStartTime: { seconds: BigInt(Math.floor(since.getTime() / 1000)), nanos: 500_000_000 }
       });
-      expect(response.zeraPayloads.map(p => p.signedHash)).toEqual(['z1']);
+      expect(response.kalPayloads.map(p => p.signedHash)).toEqual(['k1']);
       expect(response.solanaPayloads.map(p => p.signedHash)).toEqual(['s1', 's2']);
     });
 
@@ -130,7 +130,7 @@ describe('GuardianQueryClient', () => {
           return {
             hasPrice: true,
             priceData: { mintAddress: MINT, usdPrice: 150_000_000n, liquidity: 10n ** 12n, expiryTime: 1_800_000_000n },
-            zeraKey: 'A_guardian'
+            kalKey: 'A_guardian'
           };
         }
       });
@@ -146,7 +146,7 @@ describe('GuardianQueryClient', () => {
       const query = client({
         getPriceData: req => {
           request = req;
-          return { hasPrice: false, zeraKey: 'A_g' };
+          return { hasPrice: false, kalKey: 'A_g' };
         }
       });
       expect(await query.getPriceData(MINT)).toEqual({ hasPrice: false, priceData: undefined, guardianKey: 'A_g' });

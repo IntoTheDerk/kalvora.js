@@ -15,6 +15,18 @@ replaced by this release.
 
 ### Changed
 
+- **Breaking:** `guardian.proto` is updated to the re-issued bridge guardian
+  proto. Its package is now `kal_guardian`, so `GuardianService.typeName` and
+  `KalvoraRpcError.service` for guardian calls are
+  `kal_guardian.GuardianService`; callers passing their own `transport` send
+  `/kal_guardian.GuardianService/*` (the default transport still sends the
+  Envoy alias `/guardian/*`). The generated Kalvora-side names drop the former
+  network name: messages `KalPayload`, `KalContractPayload`, `KalMintPayload`,
+  `KalReleasePayload`, `KalRefundPayload`; fields `kalContractId`,
+  `kalWalletAddress`, `kalKey`, `kalPayloads`, `kalPayload`. `NETWORK_TYPE`
+  gains `KALVORA` (`0`), `ETHEREUM` (`2`) and `ZERA` (`3`).
+  `NETWORK_TYPE_KALVORA` is unchanged (`0`); `GUARDIAN_KALVORA_PAYLOAD_CASE`
+  is now `'kalPayload'`. The `KalvoraGuardian*Payload` aliases keep working.
 - **Breaking:** the Solana bridge lock options (`LockSplOptions`,
   `LockSolOptions`, `LockToken2022Options` and the token-type routed lock)
   take `kalvoraAddress`, and `BurnWrappedOptions` takes `kalvoraRecipient`.

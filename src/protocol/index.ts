@@ -21,11 +21,11 @@
  * | `txn`       | `kal_txn`        | `TXNService`       |
  * | `api`       | `kal_api`        | `APIService`       |
  * | `validator` | `kal_validator`  | `ValidatorService` |
- * | `guardian`  | guardian package  | `GuardianService`  |
+ * | `guardian`  | `kal_guardian`   | `GuardianService`  |
  *
- * The bridge guardian service uses its own protobuf package. Kalvora names
- * for its Kalvora-side identifiers (`NETWORK_TYPE_KALVORA`,
- * `KalvoraGuardianPayload`, ...) are exported from the package root.
+ * Kalvora names for the bridge guardian's Kalvora-side identifiers
+ * (`NETWORK_TYPE_KALVORA`, `KalvoraGuardianPayload`, ...) are exported from
+ * the package root.
  *
  * @module protocol
  */
