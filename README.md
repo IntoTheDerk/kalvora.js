@@ -194,7 +194,7 @@ const kalvora = new KalvoraClient();                 // or { grpc: { endpoint: '
 await kalvora.query.getNextNonce(address);           // bigint
 await kalvora.query.getBalance(address, contractId); // { balance, denomination, rate }
 await kalvora.query.getContract(contractId);         // { contract, timestamp, validatorPublicKey }
-await kalvora.query.getContractSupply(contractId);   // { maxSupply, currentSupply }
+await kalvora.query.getContractSupply(contractId);   // { maxSupply, currentSupply, circulation }
 await kalvora.getLatestBlockHeight();                // bigint, cached height hint
 
 try {
@@ -314,7 +314,9 @@ strings shared with wallet apps are exported as constants
 | [Getting started](./docs/guides/getting-started.md) | Wallets, connecting, sending, external signers, errors |
 | [HD derivation](./docs/guides/hd-derivation.md) | Exact key derivation for Ed25519 (SLIP-0010) and Ed448, reference vectors |
 | [Transactions](./docs/guides/transactions.md) | Every transaction type, required permissions, shared options |
+| [Contract IDs](./docs/guides/contract-ids.md) | Checksummed Base58 ids, genesis ids, deriving an id while creating a contract |
 | [Querying](./docs/guides/querying.md) | Query clients, blocks, results, events, guardian payloads, raw access |
+| [Proposals](./src/proposal/README.md) | Text proposals and proposals that execute a coin transfer |
 | [Architecture](./docs/guides/architecture.md) | Layers, transport, signing, protocol sync, tests |
 | [Wallet adapters](./docs/adapter-integration-guide.md) | Injected wallets, deep links, WalletConnect, protocol constants |
 | [CHANGELOG](./CHANGELOG.md) | Every release, with breaking changes marked |

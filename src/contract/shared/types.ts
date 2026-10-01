@@ -28,8 +28,16 @@ export interface CreateContractOptions {
   name: string;
   /** Contract type (TOKEN, NFT, SBT) */
   type: CONTRACT_TYPE;
-  /** Contract ID (e.g., 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao') */
-  contractId: string;
+  /**
+   * Contract ID. Required unless `vanityNonce` is set, in which case the SDK
+   * derives the ID and rejects a mismatch.
+   */
+  contractId?: string;
+  /**
+   * Vanity nonce used to derive `contractId`. This is not `BaseTXN.nonce`.
+   * When set, the derived ID is written onto the transaction.
+   */
+  vanityNonce?: bigint | number;
   /** Public key identifier of the contract creator */
   publicKeyBase58Identifier: string;
   /** Private key in base58 format */
@@ -44,8 +52,11 @@ export interface CreateContractOptions {
   contractFees?: ContractFees;
   /** Optional premint wallets */
   premintWallets?: PreMintWallet[];
-  /** Coin denomination (required) */
-  coinDenomination: CoinDenomination;
+  /**
+   * Coin denomination. Required for TOKEN contracts. Must be omitted for NFT
+   * and SBT contracts; the network rejects the transaction if the field is set.
+   */
+  coinDenomination?: CoinDenomination;
   /** Optional custom parameters */
   customParameters?: KeyValuePair[];
   /** Optional expense ratios */

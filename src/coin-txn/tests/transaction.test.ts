@@ -30,9 +30,8 @@ describe('Transaction Unit Tests', () => {
     it('should validate valid contract IDs', () => {
       const validContractIds = [
         'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
-        'KAL000001',
-        'KAL009999',
-        'KAL001234'
+        'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95',
+        '$sol-USDC+1'
       ];
 
       validContractIds.forEach(id => {
@@ -43,6 +42,8 @@ describe('Transaction Unit Tests', () => {
 
     it('should reject invalid contract IDs', () => {
       const invalidContractIds = [
+        'KAL000001',
+        'KAL111112',
         'KALV 0000', // Whitespace is not canonical
         '$KALV+', // Missing number
         'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao ', // Whitespace is not canonical

@@ -311,7 +311,7 @@ describe('buildContractTXN — validation', () => {
   it('should throw if symbol is empty', async () => {
     await expect(
       buildContractTXN({
-        contractId: 'TST0000', symbol: '', name: 'Test',
+        contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', symbol: '', name: 'Test',
         contractVersion: BigInt(0), type: 0,
         publicKeyBase58Identifier: 'pk',
         coinDenomination: {} as any
@@ -322,7 +322,7 @@ describe('buildContractTXN — validation', () => {
   it('should throw if publicKey is missing', async () => {
     await expect(
       buildContractTXN({
-        contractId: 'TST0000', symbol: 'TST', name: 'Test',
+        contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', symbol: 'TST', name: 'Test',
         contractVersion: BigInt(0), type: 0,
         publicKeyBase58Identifier: '',
         coinDenomination: {} as any
@@ -344,7 +344,7 @@ describe('buildContractUpdateTXN — validation', () => {
   it('should throw if version is less than 1', async () => {
     await expect(
       buildContractUpdateTXN({
-        contractId: 'TST0000', contractVersion: BigInt(0),
+        contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', contractVersion: BigInt(0),
         publicKeyBase58Identifier: 'pk'
       })
     ).rejects.toThrow('version must be at least 1');
@@ -353,7 +353,7 @@ describe('buildContractUpdateTXN — validation', () => {
   it('should throw if publicKey is missing', async () => {
     await expect(
       buildContractUpdateTXN({
-        contractId: 'TST0000', contractVersion: BigInt(1),
+        contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', contractVersion: BigInt(1),
         publicKeyBase58Identifier: ''
       })
     ).rejects.toThrow('Public key identifier is required');

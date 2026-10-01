@@ -29,7 +29,7 @@
  * @module query/api-client
  */
 
-import { create } from '@bufbuild/protobuf';
+import { create, fromBinary } from '@bufbuild/protobuf';
 import type { Client } from '@connectrpc/connect';
 
 import { TimestampSchema } from '../../proto/generated/google/protobuf/timestamp_pb.js';
@@ -64,6 +64,7 @@ import {
   type PreGovernance,
   type PublicKey
 } from '../../proto/generated/txn_pb.js';
+import { NFTSchema, type NFT } from '../../proto/generated/validator_pb.js';
 import {
   PRE_GOVERNANCE_OUTCOME,
   PROPOSAL_PHASE,
@@ -83,6 +84,7 @@ import {
   type ContractSupply,
   type TransactionResult
 } from './decoders.js';
+import { itemContractDatabaseKey, latin1ToBytes } from './keys.js';
 
 // ============================================================================
 // RESULT TYPES
@@ -300,7 +302,10 @@ function toProposalStatusView(status: ProposalStatus): ProposalStatusView {
   };
 }
 
-function zipMap(keys: string[], values: string[]): Map<string, string> {
+function zipMap(keys: string[], values: string[], field: string): Map<string, string> {
+  if (keys.length !== values.length) {
+    throw new Error(`${field} key/value length mismatch (${keys.length} keys, ${values.length} values)`);
+  }
   const map = new Map<string, string>();
   keys.forEach((key, index) => map.set(key, values[index] ?? ''));
   return map;
@@ -350,6 +355,8 @@ export class KalvoraQueryClient {
    * Errors are still normalised to {@link KalvoraRpcError}.
    */
   readonly raw: Client<typeof APIService>;
+  private authorizedFeeCache: { at: number; tokens: AuthorizedFeeToken[] } | undefined;
+  private static readonly AUTHORIZED_FEE_TTL_MS = 60_000;
 
   /** @param config - Endpoint / transport configuration. Defaults to protonet over HTTPS. */
   constructor(config: GRPCConfig = {}) {
@@ -531,14 +538,25 @@ export class KalvoraQueryClient {
     }));
   }
 
-  /** Every token that may be used to pay base fees. */
+  /**
+   * Every token that may be used to pay base fees.
+   *
+   * Cached for 60 seconds. `GetAllAuthorizedFees` has a high rate-limit cost.
+   */
   async getAuthorizedFeeTokens(): Promise<AuthorizedFeeToken[]> {
+    const now = Date.now();
+    const cached = this.authorizedFeeCache;
+    if (cached && now - cached.at < KalvoraQueryClient.AUTHORIZED_FEE_TTL_MS) {
+      return cached.tokens;
+    }
     const response = await this.raw.getAllAuthorizedFees({});
-    return response.authorizedFees.map(fee => ({
+    const tokens = response.authorizedFees.map(fee => ({
       contractId: fee.contractId,
       allowedFees: fee.allowedFees,
       usedFees: parseUintString(fee.usedFees, 'usedFees')
     }));
+    this.authorizedFeeCache = { at: now, tokens };
+    return tokens;
   }
 
   /**
@@ -689,11 +707,11 @@ export class KalvoraQueryClient {
       key
     }));
     return {
-      ledgers: zipMap(raw.ledgerKeys, raw.ledgerValues),
-      proposals: zipMap(raw.proposalKeys, raw.proposalValues),
-      wallets: zipMap(raw.walletsKeys, raw.walletsValues),
-      temp: zipMap(raw.tempKeys, raw.tempValues),
-      voted: zipMap(raw.votedKeys, raw.votedValues),
+      ledgers: zipMap(raw.ledgerKeys, raw.ledgerValues, 'ledgers'),
+      proposals: zipMap(raw.proposalKeys, raw.proposalValues, 'proposals'),
+      wallets: zipMap(raw.walletsKeys, raw.walletsValues, 'wallets'),
+      temp: zipMap(raw.tempKeys, raw.tempValues, 'temp'),
+      voted: zipMap(raw.votedKeys, raw.votedValues, 'voted'),
       statuses: raw.proposalStatuses.map(toProposalStatusView),
       raw
     };
@@ -749,6 +767,19 @@ export class KalvoraQueryClient {
   async getDatabaseValue(type: DATABASE_TYPE, key: string): Promise<string> {
     const response = await this.raw.database(create(DatabaseRequestSchema, { type, key }));
     return response.value;
+  }
+
+  /**
+   * Read one NFT/SBT item from `CONTRACT_ITEMS`.
+   *
+   * The database key is `db_key::item_contract`: a 4-byte big-endian length
+   * and the bytes of `itemId`, then the same for `contractId`. `Items` only
+   * returns the id pair; this record has the holder, fees, and metadata.
+   */
+  async getContractItem(itemId: string, contractId: string): Promise<NFT> {
+    const key = itemContractDatabaseKey(itemId, requireContractId(contractId));
+    const value = await this.getDatabaseValue(DATABASE_TYPE.CONTRACT_ITEMS, key);
+    return fromBinary(NFTSchema, latin1ToBytes(value));
   }
 }
 

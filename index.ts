@@ -142,6 +142,7 @@ export {
   parseAddress,
   parseHash32,
   parsePartsAmount,
+  parseUint256,
   parseUint64,
   toTimestampInit,
   type StandardTXNOptions,
@@ -151,6 +152,7 @@ export {
 // Coin transfers (CoinTXN)
 export {
   buildCoinTXN,
+  buildCoinTransfer,
   createCoinTXN,
   sendCoinTXN,
   type CoinTXNInput,
@@ -166,6 +168,7 @@ export * from './src/mint/index.js';
 // Contracts (InstrumentContract, ContractUpdateTXN)
 export {
   buildContractTXN,
+  buildContractTXN as buildInstrumentContract,
   createContractTXN,
   sendContractTXN,
   buildContractUpdateTXN,
@@ -190,12 +193,16 @@ export * from './src/delegated-voting/index.js';
 // Items: NFTs and soul-bound tokens (ItemizedMintTXN, NFTTXN, BurnSBTTXN)
 export {
   buildItemizedMintTXN,
+  buildItemMint,
+  itemFeeParts,
   createItemizedMintTXN,
   sendItemizedMintTXN,
   buildNFTTXN,
+  buildNftTransfer,
   createNFTTXN,
   sendNFTTXN,
   buildBurnSBTTXN,
+  buildSbtBurn,
   createBurnSBTTXN,
   sendBurnSBTTXN,
   type BuildItemizedMintOptions,
@@ -212,12 +219,20 @@ export {
 // Governance (GovernanceProposal, GovernanceVote, ProposalCancelTXN)
 export {
   buildTextGovernanceProposalTXN,
+  buildGovernanceProposalTXN,
+  buildGovernanceProposal,
   createTextGovernanceProposalTXN,
   sendGovernanceProposalTXN,
+  applyProposalStageFee,
+  proposalAdditionalStageDivisor,
+  FORBIDDEN_OPTION_WORDS,
   TEXT_PROPOSAL_LIMITS,
   KALVORA_PROPOSAL_CONTEXT_SCHEMA,
   KALVORA_PROPOSAL_POLICY_VERSION,
   type BuildTextGovernanceProposalTXNOptions,
+  type GovernanceFeeContext,
+  type GovernanceOptionInput,
+  type GovernanceProposalInput,
   type ProposalConstructionContext,
   type ProposalGovernanceType,
   type TextGovernanceProposalInput
@@ -475,6 +490,23 @@ export {
   KALVORA_MINT_ID_ERROR,
   isKalvoraMintId
 } from './src/shared/network/constants.js';
+
+export {
+  CREATOR_AUTHORIZATION,
+  CREATOR_KEY_ALGORITHM,
+  GENESIS_CONTRACT_IDS,
+  GENESIS_CONTRACT_NONCES,
+  canonicalDecimal,
+  contractIdChecksum,
+  decodeContractId,
+  deriveContractDataHash,
+  deriveGenesisContractId,
+  deriveOrdinaryContractId,
+  encodeContractId,
+  isCanonicalContractId,
+  type ContractDataInput,
+  type OrdinaryContractIdInput
+} from './src/protocol/contract-id.js';
 
 export {
   PROTONET_GRPC_CONFIG,

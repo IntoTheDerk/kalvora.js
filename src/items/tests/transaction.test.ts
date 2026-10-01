@@ -24,10 +24,11 @@ describe('itemized mint transactions', () => {
   it('builds an unsigned ItemizedMintTXN with item metadata', async () => {
     const txn = await buildItemizedMintTXN({
       ...commonBuildOptions,
-      contractId: 'NFT0001',
-      itemId: 'item-001',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '1',
       recipientAddress: TEST_WALLET_ADDRESSES.bob,
       votingWeight: '100',
+      timestamp: new Date(0),
       expiry: '123',
       validFrom: '100',
       parameters: [
@@ -44,8 +45,8 @@ describe('itemized mint transactions', () => {
     });
 
     expect(txn.$typeName).toBe('kal_txn.ItemizedMintTXN');
-    expect(txn.contractId).toBe('NFT0001');
-    expect(txn.itemId).toBe('item-001');
+    expect(txn.contractId).toBe('KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao');
+    expect(txn.itemId).toBe('1');
     expect(txn.recipientAddress.length).toBeGreaterThan(0);
     expect(txn.parameters).toHaveLength(2);
     expect(txn.parameters[0]?.key).toBe('name');
@@ -59,8 +60,8 @@ describe('itemized mint transactions', () => {
   it('creates and signs an ItemizedMintTXN', async () => {
     const txn = await createItemizedMintTXN({
       ...commonBuildOptions,
-      contractId: 'SBT0001',
-      itemId: 'badge-001',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '2',
       recipientAddress: TEST_WALLET_ADDRESSES.bob,
       publicKeyBase58Identifier: alice.publicKey,
       privateKeyBase58: alice.privateKey
@@ -75,7 +76,7 @@ describe('itemized mint transactions', () => {
       buildItemizedMintTXN({
         ...commonBuildOptions,
         contractId: 'bad id',
-        itemId: 'item-001',
+        itemId: '1',
         recipientAddress: TEST_WALLET_ADDRESSES.bob
       })
     ).rejects.toThrow('ContractId must be a valid Kalvora mint ID');
@@ -83,7 +84,7 @@ describe('itemized mint transactions', () => {
     await expect(
       buildItemizedMintTXN({
         ...commonBuildOptions,
-        contractId: 'NFT0001',
+        contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
         itemId: '',
         recipientAddress: TEST_WALLET_ADDRESSES.bob
       })
@@ -93,8 +94,8 @@ describe('itemized mint transactions', () => {
   it('submits ItemizedMintTXN through the transaction router', async () => {
     const txn = await createItemizedMintTXN({
       ...commonBuildOptions,
-      contractId: 'NFT0001',
-      itemId: 'item-002',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '3',
       recipientAddress: TEST_WALLET_ADDRESSES.bob,
       privateKeyBase58: alice.privateKey
     });
@@ -108,16 +109,16 @@ describe('NFT transactions', () => {
   it('builds an unsigned NFTTXN', async () => {
     const txn = await buildNFTTXN({
       ...commonBuildOptions,
-      contractId: 'NFT0001',
-      itemId: 'item-001',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '1',
       recipientAddress: TEST_WALLET_ADDRESSES.charlie,
       contractFeeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
       contractFeeAmountParts: '10'
     });
 
     expect(txn.$typeName).toBe('kal_txn.NFTTXN');
-    expect(txn.contractId).toBe('NFT0001');
-    expect(txn.itemId).toBe('item-001');
+    expect(txn.contractId).toBe('KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao');
+    expect(txn.itemId).toBe('1');
     expect(txn.contractFeeId).toBe('KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao');
     expect(txn.contractFeeAmount).toBe('10');
     expect(txn.base?.signature).toBeUndefined();
@@ -126,8 +127,8 @@ describe('NFT transactions', () => {
   it('creates and signs an NFTTXN', async () => {
     const txn = await createNFTTXN({
       ...commonBuildOptions,
-      contractId: 'NFT0001',
-      itemId: 'item-001',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '1',
       recipientAddress: TEST_WALLET_ADDRESSES.charlie,
       privateKeyBase58: alice.privateKey
     });
@@ -139,8 +140,8 @@ describe('NFT transactions', () => {
   it('submits NFTTXN through the transaction router', async () => {
     const txn = await createNFTTXN({
       ...commonBuildOptions,
-      contractId: 'NFT0001',
-      itemId: 'item-003',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '4',
       recipientAddress: TEST_WALLET_ADDRESSES.charlie,
       privateKeyBase58: alice.privateKey
     });
@@ -154,21 +155,21 @@ describe('SBT burn transactions', () => {
   it('builds an unsigned BurnSBTTXN', async () => {
     const txn = await buildBurnSBTTXN({
       ...commonBuildOptions,
-      contractId: 'SBT0001',
-      itemId: 'badge-001'
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '2'
     });
 
     expect(txn.$typeName).toBe('kal_txn.BurnSBTTXN');
-    expect(txn.contractId).toBe('SBT0001');
-    expect(txn.itemId).toBe('badge-001');
+    expect(txn.contractId).toBe('KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao');
+    expect(txn.itemId).toBe('2');
     expect(txn.base?.signature).toBeUndefined();
   });
 
   it('creates and signs a BurnSBTTXN', async () => {
     const txn = await createBurnSBTTXN({
       ...commonBuildOptions,
-      contractId: 'SBT0001',
-      itemId: 'badge-001',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '2',
       privateKeyBase58: alice.privateKey
     });
 
@@ -179,8 +180,8 @@ describe('SBT burn transactions', () => {
   it('submits BurnSBTTXN through the transaction router', async () => {
     const txn = await createBurnSBTTXN({
       ...commonBuildOptions,
-      contractId: 'SBT0001',
-      itemId: 'badge-002',
+      contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '5',
       privateKeyBase58: alice.privateKey
     });
 

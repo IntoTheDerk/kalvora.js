@@ -22,7 +22,7 @@ const INPUT: MintTXNInput = {
 
 describe('MintTXN', () => {
   it('maps input fields onto an unsigned MintTXN', async () => {
-    const txn = await buildMintTXN(INPUT, { ...OPTIONS, memo: 'mint #1', safeSend: true });
+    const txn = await buildMintTXN(INPUT, { ...OPTIONS, memo: 'mint #1' });
 
     expect(txn.$typeName).toBe('kal_txn.MintTXN');
     expect(txn.contractId).toBe('KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao');
@@ -32,16 +32,16 @@ describe('MintTXN', () => {
     expect(txn.base?.feeAmount).toBe('100');
     expect(txn.base?.nonce).toBe(7n);
     expect(txn.base?.memo).toBe('mint #1');
-    expect(txn.base?.safeSend).toBe(true);
+    expect(txn.base?.safeSend).toBeUndefined();
     expect(txn.base?.publicKey?.single).toEqual(new Uint8Array(getPublicKeyBytes(alice.publicKey)));
     expect(txn.base?.signature).toBeUndefined();
     expect(txn.base?.hash).toBeUndefined();
   });
 
   it('canonicalises bigint / number amounts and honours feeId', async () => {
-    const big = await buildMintTXN({ ...INPUT, amount: 1_000_000n }, { ...OPTIONS, feeId: 'USDX0001' });
+    const big = await buildMintTXN({ ...INPUT, amount: 1_000_000n }, { ...OPTIONS, feeId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95' });
     expect(big.amount).toBe('1000000');
-    expect(big.base?.feeId).toBe('USDX0001');
+    expect(big.base?.feeId).toBe('PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95');
     const num = await buildMintTXN({ ...INPUT, amount: 42 }, OPTIONS);
     expect(num.amount).toBe('42');
     expect(num.base?.memo).toBeUndefined();
@@ -66,6 +66,7 @@ describe('MintTXN', () => {
     await expect(buildMintTXN(undefined as unknown as MintTXNInput, OPTIONS)).rejects.toThrow(/input object is required/);
     await expect(buildMintTXN(INPUT, { ...OPTIONS, feeId: 'bad id' })).rejects.toThrow(/feeId/);
     await expect(buildMintTXN(INPUT, { ...OPTIONS, interfaceFee: '1' })).rejects.toThrow(/provided together/);
+    await expect(buildMintTXN(INPUT, { ...OPTIONS, safeSend: true })).rejects.toThrow(/safe_send/);
   });
 
   it('signs via createMintTXN and round-trips through binary', async () => {

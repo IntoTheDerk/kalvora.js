@@ -214,18 +214,19 @@ describe('decodeContractSupply', () => {
   it('decodes a real binary record transported as latin-1', () => {
     expect(decodeContractSupply(latin1(record))).toEqual({
       maxSupply: 500_000_000_000_000_000n,
-      currentSupply: 220_000_000_000_000n
+      currentSupply: 220_000_000_000_000n,
+      circulation: 220_000_000_000_000n
     });
   });
 
   it('is independent of field order', () => {
     const swapped = [...stringField(2, '7'), ...stringField(1, '9')];
-    expect(decodeContractSupply(latin1(swapped))).toEqual({ maxSupply: 9n, currentSupply: 7n });
+    expect(decodeContractSupply(latin1(swapped))).toEqual({ maxSupply: 9n, currentSupply: 7n, circulation: 7n });
   });
 
   it('treats missing fields and empty records as 0n', () => {
-    expect(decodeContractSupply('')).toEqual({ maxSupply: 0n, currentSupply: 0n });
-    expect(decodeContractSupply(latin1(stringField(2, '11')))).toEqual({ maxSupply: 0n, currentSupply: 11n });
+    expect(decodeContractSupply('')).toEqual({ maxSupply: 0n, currentSupply: 0n, circulation: 0n });
+    expect(decodeContractSupply(latin1(stringField(2, '11')))).toEqual({ maxSupply: 0n, currentSupply: 11n, circulation: 11n });
   });
 
   it('decodes multi-byte varint lengths (bytes >= 0x80 in the latin-1 string)', () => {

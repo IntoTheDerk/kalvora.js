@@ -14,7 +14,7 @@ const OPTIONS = {
   timestamp: new Date('2026-07-25T09:22:00.000Z')
 };
 const INPUT: RevokeTXNInput = {
-  contractId: 'KALSBT001',
+  contractId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95',
   recipientAddress: charlie.address,
   itemId: '17',
   publicKey: alice.publicKey
@@ -25,7 +25,7 @@ describe('RevokeTXN', () => {
     const txn = await buildRevokeTXN(INPUT, { ...OPTIONS, memo: 'licence withdrawn', safeSend: false });
 
     expect(txn.$typeName).toBe('kal_txn.RevokeTXN');
-    expect(txn.contractId).toBe('KALSBT001');
+    expect(txn.contractId).toBe('PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95');
     expect(txn.itemId).toBe('17');
     expect(txn.recipientAddress).toEqual(bs58.decode(charlie.address));
     expect(txn.base?.feeId).toBe('KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao');

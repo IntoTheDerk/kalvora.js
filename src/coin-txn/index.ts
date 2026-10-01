@@ -6,7 +6,14 @@
  */
 
 // Re-export main functions
-export { createCoinTXN, buildCoinTXN, sendCoinTXN, type CoinTXNBuildInput, type CoinTXNBuildOptions } from './transaction.js';
+export {
+  createCoinTXN,
+  buildCoinTXN,
+  buildCoinTXN as buildCoinTransfer,
+  sendCoinTXN,
+  type CoinTXNBuildInput,
+  type CoinTXNBuildOptions
+} from './transaction.js';
 
 // Re-export types
 export type { CoinTXNInput, CoinTXNOutput, GRPCConfig } from '../types/index.js';

@@ -1,5 +1,6 @@
 export {
   buildRevokeTXN,
+  buildRevokeTXN as buildRevoke,
   createRevokeTXN,
   sendRevokeTXN,
   type RevokeTXNInput,

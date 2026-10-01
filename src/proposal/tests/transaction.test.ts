@@ -119,7 +119,7 @@ describe('buildTextGovernanceProposalTXN', () => {
         ...input,
         [field]:
           field === 'contractId'
-            ? 'OTHER0000'
+            ? 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
             : `${input[field]} changed`
       };
       const changedOptions =
@@ -128,7 +128,7 @@ describe('buildTextGovernanceProposalTXN', () => {
             ...deterministicOptions,
             constructionContext: {
               ...constructionContext,
-              contractId: 'OTHER0000'
+              contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
             }
           }
           : deterministicOptions;
@@ -211,7 +211,7 @@ describe('buildTextGovernanceProposalTXN', () => {
         ...deterministicOptions,
         constructionContext: {
           ...constructionContext,
-          contractId: 'OTHER0000'
+          contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
         }
       })
     ).rejects.toThrow('does not match construction context');

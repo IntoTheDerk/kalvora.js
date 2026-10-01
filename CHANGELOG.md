@@ -51,6 +51,21 @@ replaced by this release.
 
 ### Added
 
+- Contract-id helpers: `deriveGenesisContractId`, `deriveOrdinaryContractId`,
+  `deriveContractDataHash`, `encodeContractId`, `isCanonicalContractId`,
+  `decodeContractId`, `GENESIS_CONTRACT_IDS`, and `GENESIS_CONTRACT_NONCES`.
+  `buildContractTXN` derives the id from `vanityNonce`. See
+  [Contract IDs](./docs/guides/contract-ids.md).
+- `buildGovernanceProposalTXN` (`buildGovernanceProposal`) for proposals that
+  carry transactions, plus `applyProposalStageFee` and
+  `FORBIDDEN_OPTION_WORDS`. Usage, including a coin transfer attachment, is
+  in [src/proposal/README.md](./src/proposal/README.md).
+- Query helpers: `getContractItem`, `acceptSmartContractEvent`,
+  `verifySmartContractEventSignature`, `nextSmartContractEventSearchStart`.
+  `getContractSupply` also returns `circulation`.
+- `itemFeeParts` and `parseUint256`. Builder aliases `buildCoinTransfer`,
+  `buildInstrumentContract`, `buildItemMint`, `buildNftTransfer`,
+  `buildSbtBurn`, `buildRevoke`, and signed `buildMint`.
 - Wallet protocol constants, exported from the package root and pinned by
   tests: `KALVORA_INJECTED_PROVIDER_KEY`, `KALVORA_PROVIDER_FLAG`,
   `KALVORA_PROVIDER_METHODS`, `KALVORA_DEEP_LINK_SCHEME`,

@@ -101,6 +101,21 @@ function isCoinTXN(obj: unknown): obj is CoinTXN {
   return !!(obj && typeof obj === 'object' && '$typeName' in obj && (obj as { $typeName: string }).$typeName === 'kal_txn.CoinTXN');
 }
 
+const ONE_DOLLAR = new Decimal(10).pow(18);
+
+/**
+ * USD rate used by fee math. A missing rate, or the node's missing-schedule
+ * substitute `1`, is treated as 10^18 ($1.00). The native token is never
+ * priced below $1.00.
+ */
+function resolveUsdRate(rate: string | undefined, contractId: string): Decimal {
+  if (!rate) return ONE_DOLLAR;
+  const parsed = toDecimal(rate);
+  if (parsed.lte(1)) return ONE_DOLLAR;
+  if (contractId === KALVORA_NATIVE_TOKEN && parsed.lt(ONE_DOLLAR)) return ONE_DOLLAR;
+  return parsed;
+}
+
 /**
  * Type guard to check if an object has auth property (CoinTXN)
  */
@@ -812,7 +827,7 @@ async function calculateNetworkFee(
   
   // Get exchange rate for base fee
   const tokenInfo = tokenInfoMap?.get(baseFeeId);
-  const exchangeRate = tokenInfo?.rate ? toDecimal(tokenInfo.rate) : new Decimal(1);
+  const exchangeRate = resolveUsdRate(tokenInfo?.rate, baseFeeId);
 
   // Use precise division with proper rounding for base fees
   const totalNetworkFee = totalNetworkFeeScaled.div(exchangeRate);
@@ -931,6 +946,40 @@ async function calculateNetworkFee(
  * @param grpcConfig - gRPC configuration for balance lookups
  * @param needsInitialization - Optional override: true = always add fee, false = never add fee, undefined = auto-detect
  */
+function initializationTargets(protoObject: TransactionMessage): { addresses: string[]; unconditional: number } | undefined {
+  const typeName = (protoObject as { $typeName?: string }).$typeName;
+  if (typeName === 'kal_txn.CoinTXN' && isCoinTXN(protoObject)) {
+    const addresses: string[] = [];
+    for (const output of protoObject.outputTransfers ?? []) {
+      if (output.walletAddress && output.walletAddress.length > 0) {
+        try {
+          const addressString = bs58.encode(output.walletAddress);
+          if (addressString && !addresses.includes(addressString)) addresses.push(addressString);
+        } catch {
+          // Skip addresses that cannot be encoded.
+        }
+      }
+    }
+    return { addresses, unconditional: 0 };
+  }
+  if (typeName === 'kal_txn.MintTXN') {
+    const recipient = (protoObject as MintTXN).recipientAddress;
+    if (!recipient || recipient.length === 0) return { addresses: [], unconditional: 0 };
+    try {
+      return { addresses: [bs58.encode(recipient)], unconditional: 0 };
+    } catch {
+      return { addresses: [], unconditional: 0 };
+    }
+  }
+  if (typeName === 'kal_txn.InstrumentContract') {
+    return {
+      addresses: [],
+      unconditional: (protoObject as InstrumentContract).premintWallets?.length ?? 0
+    };
+  }
+  return undefined;
+}
+
 async function calculateNewTokenBalanceFee(
   protoObject: TransactionMessage,
   baseFeeId: string,
@@ -940,35 +989,17 @@ async function calculateNewTokenBalanceFee(
   grpcConfig?: GRPCConfig,
   needsInitialization?: boolean
 ): Promise<void> {
-  if (!isCoinTXN(protoObject)) return;
+  const targets = initializationTargets(protoObject);
+  if (!targets) return;
+  const addressesToCheck = targets.addresses;
+  if (addressesToCheck.length === 0 && targets.unconditional === 0) return;
 
-  const coinTxn = protoObject as CoinTXN;
-  const addressesToCheck: string[] = [];
-
-  // 1. Extract destination addresses from outputTransfers (stored as base58-decoded Uint8Array)
-  if (coinTxn.outputTransfers && coinTxn.outputTransfers.length > 0) {
-    for (const output of coinTxn.outputTransfers) {
-      if (output.walletAddress && output.walletAddress.length > 0) {
-        try {
-          const addressString = bs58.encode(output.walletAddress);
-          if (addressString && !addressesToCheck.includes(addressString)) {
-            addressesToCheck.push(addressString);
-          }
-        } catch {
-          // Skip addresses that can't be decoded — shouldn't happen with valid transactions
-        }
-      }
-    }
-  }
-
-  if (addressesToCheck.length === 0) return;
-
-  // 3. Determine how many addresses don't hold the token
-  let addressesWithoutBalance = 0;
+  // Determine how many addresses don't hold the token. Premint wallets are new.
+  let addressesWithoutBalance = targets.unconditional;
 
   if (needsInitialization === true) {
     // Override: user says all addresses need initialization — skip API calls entirely
-    addressesWithoutBalance = addressesToCheck.length;
+    addressesWithoutBalance = addressesToCheck.length + targets.unconditional;
     logger.info('needsInitialization=true override: treating all addresses as needing initialization', {
       addressCount: addressesToCheck.length,
       operation: 'calculateNewTokenBalanceFee'
@@ -1012,21 +1043,13 @@ async function calculateNewTokenBalanceFee(
 
   // Convert USD to base fee token smallest units using exchange rate
   const tokenInfo = tokenInfoMap.get(baseFeeId);
-  if (!tokenInfo?.rate) {
-    logger.warn('Cannot calculate new token balance fee: missing exchange rate for base fee token', {
-      baseFeeId,
-      operation: 'calculateNewTokenBalanceFee'
-    });
-    return;
-  }
-
-  const exchangeRate = toDecimal(tokenInfo.rate);
+  const exchangeRate = resolveUsdRate(tokenInfo?.rate, baseFeeId);
   // totalFeeScaled is already in 1e18 precision (from the BaseFee API)
   const feeInTokenUnits = totalFeeScaled.div(exchangeRate);
 
   // Get denomination decimals
   let decimals: number;
-  if (tokenInfo.denomination) {
+  if (tokenInfo?.denomination) {
     decimals = getDecimalPlacesFromDenomination(tokenInfo.denomination);
   } else {
     throw new Error(`Token info missing denomination for ${baseFeeId}`);
@@ -1151,9 +1174,14 @@ export class UniversalFeeCalculator {
     // STEP 4: Add new token balance fee for CoinTXN (only for auto-calculated base fees)
     // Checks if any destination address doesn't hold the transferred token,
     // and adds the network-sourced new_wallet_fee per such address to the base network fee.
-    if (transactionType === TRANSACTION_TYPE.COIN_TYPE && options.baseFee === undefined && options.baseFeeParts === undefined) {
-      const coinContractId = isCoinTXN(options.protoObject) ? options.protoObject.contractId : undefined;
-      if (coinContractId) {
+    const chargesNewWallets = transactionType === TRANSACTION_TYPE.COIN_TYPE
+      || transactionType === TRANSACTION_TYPE.MINT_TYPE
+      || transactionType === TRANSACTION_TYPE.CONTRACT_TXN_TYPE;
+    if (chargesNewWallets && options.baseFee === undefined && options.baseFeeParts === undefined) {
+      const coinContractId = isCoinTXN(options.protoObject)
+        ? options.protoObject.contractId
+        : (options.contractId ?? (options.protoObject as { contractId?: string }).contractId ?? '');
+      if (coinContractId || transactionType === TRANSACTION_TYPE.CONTRACT_TXN_TYPE) {
         try {
           await calculateNewTokenBalanceFee(
             options.protoObject,
