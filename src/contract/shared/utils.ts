@@ -10,6 +10,9 @@ import type { AmountInput } from '../../types/index.js';
 /**
  * Validates contract creation options
  */
+const TOKEN_SYMBOL = /^[A-Z0-9]{3,20}$/u;
+const TOKEN_NAME = /^[A-Za-z0-9 ]{3,200}$/u;
+
 export function validateCreateContractOptions(options: {
   contractId: string;
   symbol: string;
@@ -24,9 +27,15 @@ export function validateCreateContractOptions(options: {
   if (!options.symbol || options.symbol.trim() === '') {
     throw new Error('Symbol must be provided and non-empty');
   }
+  if (!TOKEN_SYMBOL.test(options.symbol)) {
+    throw new Error('Symbol must be 3-20 characters from A-Z and 0-9');
+  }
 
   if (!options.name || options.name.trim() === '') {
     throw new Error('Name must be provided and non-empty');
+  }
+  if (!TOKEN_NAME.test(options.name)) {
+    throw new Error('Name must be 3-200 characters from letters, digits, and spaces');
   }
 
   if (options.contractVersion < 0) {

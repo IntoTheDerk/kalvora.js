@@ -2,8 +2,8 @@
  * Transaction Module - RevokeTXN
  *
  * Builds, signs, and submits Kalvora item revocation transactions. A
- * `RevokeTXN` lets a contract authority forcibly take back a specific
- * NFT / SBT item (identified by `itemId`) from the wallet currently holding it.
+ * `RevokeTXN` deletes an NFT or SBT item. The item is not transferred.
+ * `recipientAddress` is part of the signed body; it is not a delivery address.
  *
  * All envelope handling (nonce, `BaseTXN`, fees) is delegated to the shared
  * standard transaction pipeline in `shared/tx/standard`.
@@ -15,6 +15,7 @@ import { RevokeTXNSchema, type RevokeTXN } from '../../proto/generated/txn_pb.js
 import {
   buildStandardTransaction,
   parseAddress,
+  parseUint256,
   requireContractId,
   submitStandardTransaction,
   type StandardTXNOptions
@@ -34,17 +35,15 @@ export type RevokeTXNOptions = StandardTXNOptions;
  * Readable input for a {@link RevokeTXN}.
  */
 export interface RevokeTXNInput {
-  /** NFT / SBT contract that issued the item (canonical mint ID, e.g. `KALSBT001`). */
+  /** NFT / SBT contract that issued the item (canonical mint ID). */
   contractId: string;
   /**
-   * Base58 wallet address that currently holds the item and from which it is
-   * revoked.
+   * Base58 wallet address included in the signed body. The item is deleted,
+   * not delivered to this address.
    */
   recipientAddress: string;
   /**
-   * Item identifier within the contract, exactly as it was minted (for
-   * example `'1'` or `'42'`). Must be non-empty and have no surrounding
-   * whitespace.
+   * Item identifier within the contract, as a decimal uint256 string.
    */
   itemId: string;
   /**
@@ -55,22 +54,21 @@ export interface RevokeTXNInput {
 }
 
 function parseItemId(value: unknown): string {
-  if (typeof value !== 'string' || value === '') {
+  if (typeof value !== 'string' || value.trim() === '') {
     throw new Error('itemId must be a non-empty string');
   }
   if (value.trim() !== value) {
     throw new Error('itemId must not contain leading or trailing whitespace');
   }
-  return value;
+  return parseUint256(value, 'itemId', true);
 }
 
 /**
  * Build an **unsigned** {@link RevokeTXN}.
  *
- * On-chain, a revoke transaction removes item `itemId` of `contractId` from
- * `recipientAddress` (typically used for soul-bound tokens, credentials, and
- * licences that the issuer must be able to withdraw). Validators accept it
- * only if the signer's public key is a `RestrictedKey` of the contract with
+ * On-chain, a revoke transaction deletes item `itemId` of `contractId`.
+ * The item is not moved to `recipientAddress`. Validators accept it only if
+ * the signer's public key is a `RestrictedKey` of the contract with
  * `revoke = true`. With a `time_delay` on that key the revocation is held
  * pending and can be quashed until the delay elapses.
  *

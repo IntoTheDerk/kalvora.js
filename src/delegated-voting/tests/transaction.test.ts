@@ -27,7 +27,7 @@ function baseInput(overrides: Partial<DelegatedInput> = {}): DelegatedInput {
         address: bob.address,
         contracts: [
           { contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', priority: 1 },
-          { contractId: 'GOV111112', priority: 0 }
+          { contractId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', priority: 0 }
         ]
       },
       { address: charlie.address, contracts: [{ contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', priority: 2 }] }
@@ -48,7 +48,7 @@ describe('buildDelegatedTXN', () => {
     expect(bs58.encode(first?.address ?? new Uint8Array())).toBe(bob.address);
     expect(first?.contracts.map(c => [c.$typeName, c.contractId, c.priority])).toEqual([
       ['kal_txn.DelegateContract', 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', 1],
-      ['kal_txn.DelegateContract', 'GOV111112', 0]
+      ['kal_txn.DelegateContract', 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', 0]
     ]);
     expect(bs58.encode(second?.address ?? new Uint8Array())).toBe(charlie.address);
     expect(txn.delegateFees).toHaveLength(1);
@@ -67,7 +67,7 @@ describe('buildDelegatedTXN', () => {
         address: bob.address,
         contracts: [
           { contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', priority: DELEGATE_PRIORITY_MAX },
-          { contractId: 'GOV111112', priority: DELEGATE_PRIORITY_MIN }
+          { contractId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', priority: DELEGATE_PRIORITY_MIN }
         ]
       }]
     }, OPTIONS);
@@ -98,7 +98,7 @@ describe('buildDelegatedTXN', () => {
       ['duplicate delegate', {
         delegateVotes: [
           { address: bob.address, contracts: [{ contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', priority: 1 }] },
-          { address: bob.address, contracts: [{ contractId: 'GOV111112', priority: 1 }] }
+          { address: bob.address, contracts: [{ contractId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', priority: 1 }] }
         ]
       }, /duplicates an earlier delegate/],
       ['self delegation', {

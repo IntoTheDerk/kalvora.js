@@ -141,8 +141,8 @@ export interface BuildStandardTransactionParams<Desc extends DescMessage> {
 /**
  * Ensure a value is a bounded, printable Kalvora mint/contract ID.
  *
- * This is a *syntactic* check only (see `isKalvoraMintId`); the network
- * performs the final semantic validation (e.g. whether the contract exists).
+ * Canonical IDs must pass the BLAKE3 checksum (see `isKalvoraMintId`). The
+ * network still decides whether the contract exists.
  *
  * @param value - Candidate contract ID (e.g. `KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao`)
  * @param field - Field name used in the error message
@@ -217,6 +217,24 @@ export function parsePartsAmount(
   }
   if (parsed < 0n || (!allowZero && parsed === 0n)) {
     throw new Error(`${field} must be ${allowZero ? 'non-negative' : 'greater than zero'}`);
+  }
+  return parsed.toString();
+}
+
+const MAX_UINT256 = (1n << 256n) - 1n;
+
+/**
+ * Parse a decimal uint256. Leading zeros are stripped. `0` is accepted when
+ * `allowZero` is true.
+ */
+export function parseUint256(value: unknown, field = 'value', allowZero = true): string {
+  let parsed: bigint;
+  if (typeof value === 'bigint') parsed = value;
+  else if (typeof value === 'number' && Number.isSafeInteger(value)) parsed = BigInt(value);
+  else if (typeof value === 'string' && /^\d+$/u.test(value.trim())) parsed = BigInt(value.trim());
+  else throw new Error(`${field} must be a decimal uint256`);
+  if (parsed < 0n || parsed > MAX_UINT256 || (!allowZero && parsed === 0n)) {
+    throw new Error(`${field} must be a decimal uint256`);
   }
   return parsed.toString();
 }

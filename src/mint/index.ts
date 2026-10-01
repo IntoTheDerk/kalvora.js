@@ -1,6 +1,7 @@
 export {
   buildMintTXN,
   createMintTXN,
+  createMintTXN as buildMint,
   sendMintTXN,
   type MintTXNInput,
   type MintTXNOptions

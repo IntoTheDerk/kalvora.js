@@ -17,6 +17,7 @@ Typed, read-only access to Kalvora network state. Full guide:
 | `Balance` | `getBalance`, `getBalanceOrZero` |
 | `TotalBalance` | `getAllBalances` (not implemented by every gateway) |
 | `Items` | `getItems` |
+| `Database` `CONTRACT_ITEMS` | `getContractItem` |
 | `Contract` | `getContract` |
 | `Denomination` | `getDenomination` |
 | `ContractFee` | `getContractFee` |
@@ -31,17 +32,23 @@ Typed, read-only access to Kalvora network state. Full guide:
 | Validator `GetCheckpointInfo`, `SyncValidatorList` | signed requests via a `KalvoraSigner` |
 | Guardian `GetPayload`, `SearchPayload`, `GetPriceData`, `GetMintInfo` | `GuardianQueryClient` methods |
 
-Not wrapped (not client-facing): `SmartContractActivityRequest` and
-`SmartContractEvents` (validator → indexer push), `AuthenticateGuardian`
-(guardian ↔ guardian), and the validator block/gossip/attestation streams.
+Not wrapped (not client-facing): `SmartContractActivityRequest`,
+`AuthenticateGuardian` (guardian ↔ guardian), and the validator
+block/gossip/attestation streams. `SmartContractEvents` is a validator push
+to a server you register; this SDK does not listen, and
+`acceptSmartContractEvent` verifies a response you already have.
 Every client exposes `.raw` for direct protobuf access.
 
 ## Decoders
 
 Pure functions usable on data from any source: `summarizeBlock`,
 `listBlockTransactions`, `findTransactionResult`, `toTransactionResult`,
-`decodeContractSupply`, `partsToWhole`, `formatScaled`, `parseUintString`,
-`USD_SCALE`.
+`decodeContractSupply` (`circulation` aliases `currentSupply`), `partsToWhole`,
+`formatScaled`, `parseUintString`, `USD_SCALE`. Pushed smart-contract events
+are checked with `acceptSmartContractEvent` and
+`verifySmartContractEventSignature`. `nextSmartContractEventSearchStart`
+pages `searchSmartContractEvents`. `itemContractDatabaseKey` builds the
+`CONTRACT_ITEMS` key.
 
 ## Verified behaviour (live node, 2026-09)
 
@@ -50,7 +57,10 @@ Pure functions usable on data from any source: `summarizeBlock`,
 - `BaseFee` requires a valid public key.
 - Validator signed requests: signature over the protobuf request with
   `signature` unset; timestamps must be close to the node clock.
-- `CONTRACT_SUPPLY` is a binary protobuf record `{1: maxSupply, 2: currentSupply}`.
+- `CONTRACT_SUPPLY` is a binary protobuf record `{1: maxSupply, 2: circulation}`.
+  `decodeContractSupply` returns that second field as both `currentSupply`
+  and `circulation`.
+- `getAuthorizedFeeTokens` caches a successful response for 60 seconds.
 
 ## Tests
 

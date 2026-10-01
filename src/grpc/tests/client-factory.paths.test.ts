@@ -35,7 +35,7 @@ describe('createClient request paths', () => {
     expect(APIService.typeName).toBe('kal_api.APIService');
     expect(TXNService.typeName).toBe('kal_txn.TXNService');
     expect(ValidatorService.typeName).toBe('kal_validator.ValidatorService');
-    expect(GuardianService.typeName).toBe('zera_guardian.GuardianService');
+    expect(GuardianService.typeName).toBe('kal_guardian.GuardianService');
   });
 
   it.each([

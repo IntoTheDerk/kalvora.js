@@ -47,13 +47,22 @@ const { contract } = await query.getContract(contractId);  // InstrumentContract
 contract.symbol; contract.governance; contract.restrictedKeys;
 
 await query.getDenomination(contractId);          // 1000000000n (9 decimals)
-await query.getContractSupply(contractId);        // { maxSupply, currentSupply }
+await query.getContractSupply(contractId);        // { maxSupply, currentSupply, circulation }
 await query.getCurrencyEquivalent(contractId);    // USD per token × 1e18
 await query.getContractFee(contractId);           // NOT_FOUND if the contract charges none
 await query.getTokenFeeInfo([idA, idB]);          // rate, denomination, authorization, fees
-await query.getAuthorizedFeeTokens();             // tokens accepted for base fees
+await query.getAuthorizedFeeTokens();             // tokens accepted for base fees (cached 60s)
 await query.getBaseFee(TRANSACTION_TYPE.COIN_TYPE, wallet.publicKey);
+await query.getContractItem(itemId, contractId);  // NFT record: holder, fees, metadata
 ```
+
+`circulation` is the same value as `currentSupply`. It is field 2 of the
+on-chain `MaxSupply` record. `getContractItem` reads `CONTRACT_ITEMS`.
+`itemId` is the decimal uint256 stored on the item. `getItems` only returns
+the id pair.
+
+`getAuthorizedFeeTokens` keeps its result for 60 seconds. A fee instrument
+is qualified when it is `KALVORA_NATIVE_TOKEN` or appears in that list.
 
 ## Blocks and transaction results
 
@@ -98,11 +107,25 @@ ledger.voted;        // Map<wallet, record>
 ## Smart contract events
 
 ```typescript
-const events = await query.searchSmartContractEvents('my_contract', new Date(Date.now() - 86_400_000));
+import { nextSmartContractEventSearchStart } from 'kalvora.js';
+
+const start = new Date(Date.now() - 86_400_000);
+const events = await query.searchSmartContractEvents('my_contract', start);
 for (const event of events) {
   console.log(event.function, event.eventData, event.blockHeight, event.txnHash);
 }
+const nextStart = nextSmartContractEventSearchStart(events); // one millisecond after the newest
 ```
+
+Events are oldest-first and are pruned after about three days. Pass
+`nextStart` as the next search start to page forward.
+
+A validator can also push `SmartContractEvents` to a server you registered.
+There is no listening server in this SDK. When you receive a
+`SmartContractEventsResponse`, `acceptSmartContractEvent` checks the
+validator signature (Ed25519 for an `A_` key, Ed448 for `B_`) over the
+protobuf bytes with `signature` cleared, and throws when it does not verify.
+`verifySmartContractEventSignature` returns the boolean instead.
 
 ## Raw database access
 

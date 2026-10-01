@@ -71,8 +71,15 @@ describe('wallet protocol constants', () => {
 describe('guardian protocol constants', () => {
   it('pins the Kalvora network type and payload case', () => {
     expect(sdk.NETWORK_TYPE_KALVORA).toBe(0);
-    expect(sdk.NETWORK_TYPE_KALVORA).toBe(NETWORK_TYPE.ZERA);
-    expect(sdk.GUARDIAN_KALVORA_PAYLOAD_CASE).toBe('zeraPayload');
+    expect(sdk.NETWORK_TYPE_KALVORA).toBe(NETWORK_TYPE.KALVORA);
+    expect(sdk.GUARDIAN_KALVORA_PAYLOAD_CASE).toBe('kalPayload');
+  });
+
+  it('pins the guardian NETWORK_TYPE values', () => {
+    expect(NETWORK_TYPE.KALVORA).toBe(0);
+    expect(NETWORK_TYPE.SOLANA).toBe(1);
+    expect(NETWORK_TYPE.ETHEREUM).toBe(2);
+    expect(NETWORK_TYPE.ZERA).toBe(3);
   });
 });
 

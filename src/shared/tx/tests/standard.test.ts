@@ -54,7 +54,12 @@ function buildQuash(options: StandardTXNOptions = OFFLINE, publicKeyId: string =
 // ----------------------------------------------------------------------------
 
 describe('requireContractId', () => {
-  it.each([KALVORA_NATIVE_TOKEN, 'USDX0001', 'a', 'solana:EPjF.x-y/z+1', '$sol-USDC'])('accepts %s', value => {
+  it.each([
+    KALVORA_NATIVE_TOKEN,
+    'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95',
+    '$sol-USDC',
+    '$sol-USDC+1'
+  ])('accepts %s', value => {
     expect(requireContractId(value)).toBe(value);
   });
 
@@ -63,6 +68,10 @@ describe('requireContractId', () => {
     [' KALX', 'leading space'],
     ['KALX ', 'trailing space'],
     ['bad id', 'inner space'],
+    ['USDX0001', 'checksum'],
+    ['a', 'too short'],
+    ['solana:EPjF.x-y/z+1', 'foreign address'],
+    ['KAL111112', 'placeholder'],
     ['-leading', 'leading dash'],
     ['A'.repeat(1000), 'oversized'],
     [42, 'number'],
@@ -285,9 +294,9 @@ describe('buildStandardTransaction', () => {
   });
 
   it('maps memo, feeId and safeSend onto base', async () => {
-    const txn = await buildQuash({ ...OFFLINE, memo: 'hello', feeId: 'USDX0001', safeSend: true });
+    const txn = await buildQuash({ ...OFFLINE, memo: 'hello', feeId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', safeSend: true });
     expect(txn.base?.memo).toBe('hello');
-    expect(txn.base?.feeId).toBe('USDX0001');
+    expect(txn.base?.feeId).toBe('PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95');
     expect(txn.base?.safeSend).toBe(true);
 
     const noSafe = await buildQuash({ ...OFFLINE, safeSend: false });

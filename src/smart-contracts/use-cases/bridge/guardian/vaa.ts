@@ -511,7 +511,7 @@ export async function submitVAAToSolana(
       {
         amount: BigInt(mint.amount.toString()),
         recipient: mint.solanaWalletAddress,
-        contractId: mint.zeraContractId,
+        contractId: mint.kalContractId,
         txnId: mint.txnHash,
         timestamp,
         signatures,
@@ -553,7 +553,7 @@ export async function submitVAAToSolana(
       {
         amount: BigInt(contract.amount.toString()),
         recipient: contract.solanaWalletAddress,
-        contractId: contract.zeraContractId,
+        contractId: contract.kalContractId,
         decimals: parseInt(contract.decimals, 10),
         name: contract.name,
         symbol: contract.symbol,
@@ -650,7 +650,7 @@ export async function submitVAAToKalvora(
     const release = kalvoraPayload.payload.value;
     
     txnHash = await releaseKalvoraAndSend(
-      release.zeraWalletAddress,
+      release.kalWalletAddress,
       publicKeyBase58,
       privateKeyBase58,
       {
@@ -669,7 +669,7 @@ export async function submitVAAToKalvora(
     const mint = kalvoraPayload.payload.value;
     
     txnHash = await mintSolAndSend(
-      mint.zeraWalletAddress,
+      mint.kalWalletAddress,
       publicKeyBase58,
       privateKeyBase58,
       {
@@ -688,7 +688,7 @@ export async function submitVAAToKalvora(
     const contract = kalvoraPayload.payload.value;
     
     txnHash = await createSolAndSend(
-      contract.zeraWalletAddress,
+      contract.kalWalletAddress,
       publicKeyBase58,
       privateKeyBase58,
       {

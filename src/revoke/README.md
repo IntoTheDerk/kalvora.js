@@ -17,22 +17,23 @@ import { createRevokeTXN, sendRevokeTXN } from 'kalvora.js';
 
 const txn = await createRevokeTXN(
   {
-    contractId: 'KALSBT001',
-    recipientAddress: '<holder base58 address>',
-    itemId: '17',
-    publicKey: 'A_<signer base58 public key>'
+    contractId,                       // canonical Base58 mint id
+    recipientAddress: holderAddress,
+    itemId: '17',                      // decimal uint256
+    publicKey
   },
   privateKey
 );
 const hash = await sendRevokeTXN(txn);
 ```
 
-`itemId` must match the minted item ID exactly (non-empty, no surrounding
-whitespace).
+A successful revoke deletes the item. `itemId` is a decimal uint256
+(`parseUint256`). The builder does not look up the contract's restricted
+keys; the node rejects a signer that does not have `revoke`.
 
 | Function | Purpose |
 |---|---|
-| `buildRevokeTXN(input, options?)` | Unsigned `RevokeTXN` |
+| `buildRevokeTXN` (`buildRevoke`) | Unsigned `RevokeTXN` |
 | `createRevokeTXN(input, privateKey, options?)` | Build + sign |
 | `sendRevokeTXN(txn, grpcConfig?)` | Submit a signed txn, returns hex hash |
 

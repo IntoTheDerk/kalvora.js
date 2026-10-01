@@ -117,6 +117,8 @@ try {
 ## Next steps
 
 - [Transactions](./transactions.md) — every transaction type, permissions, and options.
+- [Contract IDs](./contract-ids.md) — checksummed Base58 ids and deriving one for a new contract.
+- [Proposals](../../src/proposal/README.md) — text proposals and proposals that carry a coin transfer.
 - [Querying](./querying.md) — balances, contracts, blocks, events, waiting for inclusion.
 - [Architecture](./architecture.md) — transport, signing, and protocol sync.
 - [HD derivation](./hd-derivation.md) — the key-derivation spec and reference vectors.

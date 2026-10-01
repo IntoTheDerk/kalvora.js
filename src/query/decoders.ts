@@ -113,6 +113,8 @@ export interface ContractSupply {
   maxSupply: bigint;
   /** Current (minted, not burned) supply in smallest units. */
   currentSupply: bigint;
+  /** Same value as `currentSupply`. This is `kal_wallets.MaxSupply.circulation`. */
+  circulation: bigint;
 }
 
 function readVarint(bytes: Uint8Array, offset: number): { value: number; next: number } {
@@ -163,9 +165,11 @@ export function decodeContractSupply(value: string): ContractSupply {
     fields.set(fieldNumber, decoder.decode(bytes.subarray(length.next, end)));
     offset = end;
   }
+  const currentSupply = parseUintString(fields.get(2) ?? '', 'currentSupply');
   return {
     maxSupply: parseUintString(fields.get(1) ?? '', 'maxSupply'),
-    currentSupply: parseUintString(fields.get(2) ?? '', 'currentSupply')
+    currentSupply,
+    circulation: currentSupply
   };
 }
 

@@ -22,5 +22,9 @@ export {
   type CreateBurnSBTTXNOptions,
   type ItemizedMintParameterInput,
   type ItemContractFeesInput,
-  type StandardItemTXNOptions
+  type StandardItemTXNOptions,
+  buildItemMint,
+  buildNftTransfer,
+  buildSbtBurn
 } from './transaction.js';
+export { itemFeeParts } from './item-fee.js';

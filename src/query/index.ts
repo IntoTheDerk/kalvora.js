@@ -34,6 +34,15 @@ export {
 } from './api-client.js';
 
 export {
+  acceptSmartContractEvent,
+  nextSmartContractEventSearchStart,
+  verifySmartContractEventSignature,
+  type AcceptedSmartContractEvent
+} from './events.js';
+
+export { itemContractDatabaseKey, latin1ToBytes } from './keys.js';
+
+export {
   ValidatorQueryClient,
   createValidatorQueryClient,
   type CheckpointInfo

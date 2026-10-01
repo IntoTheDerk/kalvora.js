@@ -38,7 +38,7 @@ vi.unmock('@connectrpc/connect-web');
 
 const ALICE = ED25519_TEST_KEYS.alice;
 const BOB448 = ED448_TEST_KEYS.bob;
-const OTHER_TOKEN = 'KALother.token-1';
+const OTHER_TOKEN = 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95';
 
 function client(impl: Partial<ServiceImpl<typeof APIService>>): KalvoraQueryClient {
   const transport = createRouterTransport(({ service }) => {
@@ -375,14 +375,14 @@ describe('contract & fee queries', () => {
   });
 
   it('getContract without timestamp/key', async () => {
-    const info = await client({ contract: () => ({ contract: { symbol: 'X' } }) }).getContract('X');
+    const info = await client({ contract: () => ({ contract: { symbol: 'X' } }) }).getContract(KALVORA_NATIVE_TOKEN);
     expect(info.timestamp).toBeUndefined();
     expect(info.validatorPublicKey).toBeUndefined();
     expect(info.signature).toEqual(new Uint8Array(0));
   });
 
   it('getContract throws on an empty definition', async () => {
-    await expect(client({ contract: () => ({}) }).getContract('X')).rejects.toThrow('Contract X returned an empty definition');
+    await expect(client({ contract: () => ({}) }).getContract(KALVORA_NATIVE_TOKEN)).rejects.toThrow(`Contract ${KALVORA_NATIVE_TOKEN} returned an empty definition`);
   });
 
   it('getContract validates the contract ID', async () => {
@@ -574,7 +574,8 @@ describe('contract & fee queries', () => {
     });
     expect(await query.getContractSupply(KALVORA_NATIVE_TOKEN)).toEqual({
       maxSupply: 500_000_000_000_000_000n,
-      currentSupply: 220_000_000_000_000n
+      currentSupply: 220_000_000_000_000n,
+      circulation: 220_000_000_000_000n
     });
     expect(request).toMatchObject({ type: DATABASE_TYPE.CONTRACT_SUPPLY, key: KALVORA_NATIVE_TOKEN });
   });
@@ -855,7 +856,7 @@ describe('getProposalLedger', () => {
           ledgerKeys: ['L1'],
           ledgerValues: ['ledger-1'],
           proposalKeys: ['P1', 'P2'],
-          proposalValues: ['prop-1'], // shorter than keys → '' for P2
+          proposalValues: ['prop-1', 'prop-2'],
           walletsKeys: ['W1'],
           walletsValues: ['w'],
           votedKeys: [],
@@ -866,7 +867,7 @@ describe('getProposalLedger', () => {
     const view = await query.getProposalLedger(PROPOSAL_TYPE.PROPOSAL_BY_ID, 'P1');
     expect(request).toMatchObject({ type: PROPOSAL_TYPE.PROPOSAL_BY_ID, key: 'P1' });
     expect(view.ledgers).toEqual(new Map([['L1', 'ledger-1']]));
-    expect(view.proposals).toEqual(new Map([['P1', 'prop-1'], ['P2', '']]));
+    expect(view.proposals).toEqual(new Map([['P1', 'prop-1'], ['P2', 'prop-2']]));
     expect(view.wallets).toEqual(new Map([['W1', 'w']]));
     expect(view.temp.size).toBe(0);
     expect(view.voted.size).toBe(0);

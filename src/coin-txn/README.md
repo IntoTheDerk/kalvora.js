@@ -4,7 +4,7 @@ This module handles coin transactions on the Kalvora network with comprehensive 
 
 ## What it does
 
-- Creates coin transactions with inputs and outputs
+- Creates coin transactions with inputs and outputs (`buildCoinTransfer` is the unsigned `buildCoinTXN`)
 - Calculates fees automatically with exchange rate handling
 - Handles nonce generation and validation
 - Signs transactions with private keys

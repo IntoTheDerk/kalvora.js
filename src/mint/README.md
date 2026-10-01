@@ -41,6 +41,7 @@ const hash = await sendMintTXN(txn);
 |---|---|
 | `buildMintTXN(input, options?)` | Unsigned `MintTXN` |
 | `createMintTXN(input, privateKey, options?)` | Build + sign |
+| `buildMint(input, privateKey, options?)` | Alias of `createMintTXN` (signed, not unsigned) |
 | `sendMintTXN(txn, grpcConfig?)` | Submit a signed txn, returns hex hash |
 
 ## Offline / deterministic building
@@ -56,5 +57,8 @@ const txn = await buildMintTXN(input, {
 });
 ```
 
-Other options (`memo`, `feeId`, `safeSend`, interface fee, `grpcConfig`) come
-from the shared `StandardTXNOptions`.
+Other options (`memo`, `feeId`, interface fee, `grpcConfig`) come from the
+shared `StandardTXNOptions`. Leave `safeSend` unset: a mint with `safe_send`
+is rejected. Online builds also refuse a non-token contract and the bridge
+minter identities `sc_bridge_proxy_1` and `sc_zera_bridge_proxy_1`. Pass both
+`nonce` and `feeAmountParts` to skip those network checks.

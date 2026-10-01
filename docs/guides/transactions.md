@@ -20,20 +20,20 @@ Use `build` + `signAndFinalize(txn, signer)` when keys live elsewhere
 
 | Message | Functions | Signer needs | Module docs |
 |---------|-----------|--------------|-------------|
-| `CoinTXN` | `buildCoinTXN` · `createCoinTXN` · `sendCoinTXN` | owns the inputs (or an allowance) | `src/coin-txn` |
-| `MintTXN` | `buildMintTXN` · `createMintTXN` · `sendMintTXN` | restricted key with `mint` | `src/mint` |
-| `InstrumentContract` | `buildContractTXN` · `createContractTXN` · `sendContractTXN` | any wallet (creator) | `src/contract` |
+| `CoinTXN` | `buildCoinTXN` (`buildCoinTransfer`) · `createCoinTXN` · `sendCoinTXN` | owns the inputs (or an allowance) | `src/coin-txn` |
+| `MintTXN` | `buildMintTXN` · `createMintTXN` (`buildMint`, signed) · `sendMintTXN` | restricted key with `mint` | `src/mint` |
+| `InstrumentContract` | `buildContractTXN` (`buildInstrumentContract`) · `createContractTXN` · `sendContractTXN` | any wallet (creator) | [Contract IDs](./contract-ids.md) |
 | `ContractUpdateTXN` | `buildContractUpdateTXN` · `createContractUpdateTXN` · `sendContractUpdateTXN` | restricted key with `update_contract` | `src/contract` |
-| `RevokeTXN` | `buildRevokeTXN` · `createRevokeTXN` · `sendRevokeTXN` | restricted key with `revoke` | `src/revoke` |
+| `RevokeTXN` | `buildRevokeTXN` (`buildRevoke`) · `createRevokeTXN` · `sendRevokeTXN` | restricted key with `revoke` | `src/revoke` |
 | `QuashTXN` | `buildQuashTXN` · `createQuashTXN` · `sendQuashTXN` | restricted key with `quash` | `src/quash` |
 | `ComplianceTXN` | `buildComplianceTXN` · `createComplianceTXN` · `sendComplianceTXN` | restricted key with `compliance` | `src/compliance` |
 | `ExpenseRatioTXN` | `buildExpenseRatioTXN` · `createExpenseRatioTXN` · `sendExpenseRatioTXN` | restricted key with `expense_ratio` | `src/expense-ratio` |
 | `AllowanceTXN` | `buildAllowanceTXN` · `createAllowanceTXN` · `sendAllowanceTXN` (+ `buildRevokeAllowanceTXN`) | the granting wallet | `src/allowance` |
 | `DelegatedTXN` | `buildDelegatedTXN` · `createDelegatedTXN` · `sendDelegatedTXN` | the delegating wallet | `src/delegated-voting` |
-| `ItemizedMintTXN` | `buildItemizedMintTXN` · `createItemizedMintTXN` · `sendItemizedMintTXN` | restricted key with `mint` | `src/items` |
-| `NFTTXN` | `buildNFTTXN` · `createNFTTXN` · `sendNFTTXN` | item owner | `src/items` |
-| `BurnSBTTXN` | `buildBurnSBTTXN` · `createBurnSBTTXN` · `sendBurnSBTTXN` | item owner | `src/items` |
-| `GovernanceProposal` | `buildTextGovernanceProposalTXN` · `createTextGovernanceProposalTXN` · `sendGovernanceProposalTXN` | holder of an allowed proposal instrument | `src/proposal` |
+| `ItemizedMintTXN` | `buildItemizedMintTXN` (`buildItemMint`) · `createItemizedMintTXN` · `sendItemizedMintTXN` | restricted key with `mint` | `src/items` |
+| `NFTTXN` | `buildNFTTXN` (`buildNftTransfer`) · `createNFTTXN` · `sendNFTTXN` | item owner | `src/items` |
+| `BurnSBTTXN` | `buildBurnSBTTXN` (`buildSbtBurn`) · `createBurnSBTTXN` · `sendBurnSBTTXN` | item owner | `src/items` |
+| `GovernanceProposal` | `buildGovernanceProposalTXN` · `buildTextGovernanceProposalTXN` · `createTextGovernanceProposalTXN` · `sendGovernanceProposalTXN` | holder of an allowed proposal instrument | `src/proposal` |
 | `GovernanceVote` | `buildVoteTXN` · `createVoteTXN` · `sendVoteTXN` | holder of a voting instrument | `src/vote` |
 | `ProposalCancelTXN` | `buildProposalCancelTXN` · `createProposalCancelTXN` · `sendProposalCancelTXN` | the proposer | `src/proposal-cancel` |
 | `SmartContractTXN` | `buildSmartContractTXN` · `createSmartContractTXN` · `sendSmartContractTXN` | any wallet (deployer) | `src/smart-contracts/deploy` |
@@ -130,12 +130,38 @@ const compliance = await createComplianceTXN({
 
 ```typescript
 const unsigned = await buildRevokeTXN(
-  { contractId, recipientAddress, itemId: 'badge-42', publicKey: hw.publicKey },
+  { contractId, recipientAddress, itemId: '42', publicKey: hw.publicKey },
   { nonce: 17n, feeAmountParts: '2000000', timestamp: new Date('2026-10-01T00:00:00Z') }
 );
 const signed = await signAndFinalize(unsigned, hardwareSigner); // KalvoraSigner
 await sendRevokeTXN(signed, grpcConfig);
 ```
+
+## Governance proposals
+
+`buildTextGovernanceProposalTXN` builds a proposal with no executable
+transactions. `buildGovernanceProposalTXN` (`buildGovernanceProposal`) also
+attaches transactions: a binary proposal sets `governanceTxn` and leaves
+`options` empty; a multi-option proposal sets `options` (option 0 is
+`against`) and `governanceOptionTxns`. The inner transaction's
+`base.public_key.governance_auth` must be the ASCII bytes of `gov_` plus
+the proposal contract id, and its `base.hash` must be copied into
+`GovernanceTXN.txnHash`. Pass the contract's governance snapshot so the fee
+covers every stage, including pre-governance. Adaptive governance also
+requires `startTimestamp` and `endTimestamp`.
+
+The worked example, including a one-part coin transfer, is in
+[`src/proposal/README.md`](../../src/proposal/README.md).
+
+## Contract IDs
+
+New instrument contracts take a canonical Base58 id. Pass `vanityNonce`
+(not the transaction nonce) and `buildContractTXN` derives it. Derivation,
+checksums, genesis ids, and the token versus NFT/SBT field rules are in
+[Contract IDs](./contract-ids.md).
+
+`parseUint256` parses item ids and other uint256 strings (`'0'` through
+`2^256-1`).
 
 ## Confirming inclusion
 

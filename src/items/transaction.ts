@@ -13,6 +13,7 @@ import { protoInt64, create } from '@bufbuild/protobuf';
 
 import {
   BurnSBTTXNSchema,
+  CONTRACT_TYPE,
   ItemContractFeesSchema,
   ItemizedMintTXNSchema,
   KeyValuePairSchema,
@@ -27,15 +28,19 @@ import type {
 } from '../../proto/generated/txn_pb.js';
 import { validateKeyPair } from '../contract/shared/utils.js';
 import { submitTransaction } from '../grpc/transaction/transaction-client.js';
+import { createQueryClient } from '../query/api-client.js';
 import { generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
 import { UniversalFeeCalculator, type FeeConfigHelper } from '../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../shared/tx/base.js';
+import { parseUint256 } from '../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { isValidContractId } from '../shared/utils/validation.js';
 import { signWithKey } from '../sign/finalize.js';
 import type { GRPCConfig } from '../types/index.js';
+
+import { assertCollectionType, assertItemFeeAuthorized, assertItemHeldBy } from './guards.js';
 
 // ============================================================================
 // TYPES
@@ -54,6 +59,8 @@ export interface StandardItemTXNOptions {
   feeId?: string;
   /** Manual base fee amount in smallest units/parts */
   feeAmountParts?: string;
+  /** Transaction timestamp. Defaults to `new Date()`. */
+  timestamp?: Date;
 }
 
 export type ItemizedMintParameterInput = Pick<KeyValuePair, 'key' | 'value'>;
@@ -135,13 +142,18 @@ export interface CreateBurnSBTTXNOptions extends BuildBurnSBTTXNOptions {
 // INTERNAL HELPERS
 // ============================================================================
 
-function validateItemIdentifiers(contractId: string, itemId: string): void {
+function validateItemIdentifiers(contractId: string, itemId: string): string {
   if (!contractId || !isValidContractId(contractId)) {
     throw new Error('ContractId must be a valid Kalvora mint ID (e.g., KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao)');
   }
   if (!itemId || itemId.trim() === '') {
     throw new Error('itemId is required');
   }
+  return parseUint256(itemId, 'itemId', true);
+}
+
+function isOffline(options: StandardItemTXNOptions): boolean {
+  return options.nonce !== undefined && options.feeAmountParts !== undefined;
 }
 
 function validatePublicKey(publicKeyBase58Identifier: string): void {
@@ -179,13 +191,21 @@ async function buildBaseForItemTXN(
     nonce = result.nonce;
   }
 
-  const baseParams: { publicKeyId: string; nonce: bigint; memo?: string; feeId?: string; feeAmountParts?: string } = {
+  const baseParams: {
+    publicKeyId: string;
+    nonce: bigint;
+    memo?: string;
+    feeId?: string;
+    feeAmountParts?: string;
+    timestamp?: Date;
+  } = {
     publicKeyId: publicKeyBase58Identifier,
     nonce
   };
   if (options.memo) baseParams.memo = options.memo;
   if (options.feeId !== undefined) baseParams.feeId = options.feeId;
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
+  if (options.timestamp !== undefined) baseParams.timestamp = options.timestamp;
 
   return buildStandardBaseTXN(baseParams);
 }
@@ -255,10 +275,12 @@ function buildItemContractFees(fees: ItemContractFees | ItemContractFeesInput | 
   return create(ItemContractFeesSchema, feeData);
 }
 
-function hashOrFallback(txn: { base?: { hash?: Uint8Array } }, fallback: string): string {
-  return txn.base?.hash
-    ? Array.from(txn.base.hash).map(b => b.toString(16).padStart(2, '0')).join('')
-    : fallback;
+function transactionHash(txn: { base?: { hash?: Uint8Array } }): string {
+  const hash = txn.base?.hash;
+  if (!hash || hash.length === 0) {
+    throw new Error('Transaction was not accepted: base.hash is missing');
+  }
+  return Array.from(hash, byte => byte.toString(16).padStart(2, '0')).join('');
 }
 
 // ============================================================================
@@ -273,21 +295,37 @@ function hashOrFallback(txn: { base?: { hash?: Uint8Array } }, fallback: string)
 export async function buildItemizedMintTXN(
   options: BuildItemizedMintOptions
 ): Promise<ItemizedMintTXN> {
-  validateItemIdentifiers(options.contractId, options.itemId);
+  const itemId = validateItemIdentifiers(options.contractId, options.itemId);
   validatePublicKey(options.publicKeyBase58Identifier);
   if (!options.recipientAddress) throw new Error('recipientAddress is required');
+  if (options.votingWeight !== undefined) parseUint256(options.votingWeight, 'votingWeight', false);
 
   const recipientAddress = sanitizeAndDecodeAddress(options.recipientAddress);
   const base = await buildBaseForItemTXN('buildItemizedMintTXN', options.publicKeyBase58Identifier, options);
   const parameters = buildParameters(options.parameters);
   const expiry = parseOptionalUint64(options.expiry, 'expiry');
   const validFrom = parseOptionalUint64(options.validFrom, 'validFrom');
+  if (validFrom !== undefined && expiry !== undefined && validFrom >= expiry) {
+    throw new Error('validFrom must be less than expiry');
+  }
+  if (expiry !== undefined) {
+    const timestampSeconds = base.timestamp?.seconds ?? 0n;
+    if (expiry <= timestampSeconds) {
+      throw new Error('expiry must be after base.timestamp');
+    }
+  }
+  if (!isOffline(options)) {
+    const info = await createQueryClient(options.grpcConfig ?? {}).getContract(options.contractId);
+    if (info.contract.type !== CONTRACT_TYPE.NFT && info.contract.type !== CONTRACT_TYPE.SBT) {
+      throw new Error('Item mint requires an NFT or SBT collection');
+    }
+  }
   const contractFees = buildItemContractFees(options.contractFees);
 
   const mintData: Record<string, unknown> = {
     base,
     contractId: options.contractId,
-    itemId: options.itemId,
+    itemId,
     recipientAddress
   };
   if (options.votingWeight !== undefined) mintData.votingWeight = options.votingWeight;
@@ -328,7 +366,7 @@ export async function sendItemizedMintTXN(
   grpcConfig: GRPCConfig = {}
 ): Promise<string> {
   await submitTransaction(txn, grpcConfig);
-  return hashOrFallback(txn, 'Itemized mint submitted (no hash available)');
+  return transactionHash(txn);
 }
 
 // Common "item mint" aliases for callers who do not use the protobuf name.
@@ -343,9 +381,31 @@ export async function sendItemizedMintTXN(
 export async function buildNFTTXN(
   options: BuildNFTTXNOptions
 ): Promise<NFTTXN> {
-  validateItemIdentifiers(options.contractId, options.itemId);
+  const itemId = validateItemIdentifiers(options.contractId, options.itemId);
   validatePublicKey(options.publicKeyBase58Identifier);
   if (!options.recipientAddress) throw new Error('recipientAddress is required');
+  if (!isOffline(options)) {
+    await assertCollectionType(options.contractId, CONTRACT_TYPE.NFT, options.grpcConfig, 'NFT transfer');
+    const item = await assertItemHeldBy(
+      options.contractId,
+      itemId,
+      options.publicKeyBase58Identifier,
+      options.grpcConfig
+    );
+    if (item.contractFees?.fee && item.contractFees.fee !== '0') {
+      if (!options.contractFeeId) {
+        throw new Error('this item has contract fees; set contractFeeId and contractFeeAmountParts');
+      }
+      const [token] = await createQueryClient(options.grpcConfig ?? {}).getTokenFeeInfo([options.contractFeeId]);
+      if (!token) throw new Error(`no fee info for ${options.contractFeeId}`);
+      assertItemFeeAuthorized(
+        item,
+        options.contractFeeAmountParts,
+        token.denomination.toString(),
+        token.rate.toString()
+      );
+    }
+  }
 
   const recipientAddress = sanitizeAndDecodeAddress(options.recipientAddress);
   const base = await buildBaseForItemTXN('buildNFTTXN', options.publicKeyBase58Identifier, options);
@@ -353,7 +413,7 @@ export async function buildNFTTXN(
   const nftData: Record<string, unknown> = {
     base,
     contractId: options.contractId,
-    itemId: options.itemId,
+    itemId,
     recipientAddress
   };
   if (options.contractFeeId !== undefined) nftData.contractFeeId = options.contractFeeId;
@@ -391,7 +451,7 @@ export async function sendNFTTXN(
   grpcConfig: GRPCConfig = {}
 ): Promise<string> {
   await submitTransaction(txn, grpcConfig);
-  return hashOrFallback(txn, 'NFT transaction submitted (no hash available)');
+  return transactionHash(txn);
 }
 
 
@@ -405,14 +465,18 @@ export async function sendNFTTXN(
 export async function buildBurnSBTTXN(
   options: BuildBurnSBTTXNOptions
 ): Promise<BurnSBTTXN> {
-  validateItemIdentifiers(options.contractId, options.itemId);
+  const itemId = validateItemIdentifiers(options.contractId, options.itemId);
   validatePublicKey(options.publicKeyBase58Identifier);
+  if (!isOffline(options)) {
+    await assertCollectionType(options.contractId, CONTRACT_TYPE.SBT, options.grpcConfig, 'SBT burn');
+    await assertItemHeldBy(options.contractId, itemId, options.publicKeyBase58Identifier, options.grpcConfig);
+  }
 
   const base = await buildBaseForItemTXN('buildBurnSBTTXN', options.publicKeyBase58Identifier, options);
   const burnTxn = create(BurnSBTTXNSchema, {
     base,
     contractId: options.contractId,
-    itemId: options.itemId
+    itemId
   });
   await UniversalFeeCalculator.calculateFee<BurnSBTTXN>(buildFeeOptions(burnTxn, options));
 
@@ -445,5 +509,11 @@ export async function sendBurnSBTTXN(
   grpcConfig: GRPCConfig = {}
 ): Promise<string> {
   await submitTransaction(txn, grpcConfig);
-  return hashOrFallback(txn, 'SBT burn submitted (no hash available)');
+  return transactionHash(txn);
 }
+
+export {
+  buildItemizedMintTXN as buildItemMint,
+  buildNFTTXN as buildNftTransfer,
+  buildBurnSBTTXN as buildSbtBurn
+};
