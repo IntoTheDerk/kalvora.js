@@ -22,7 +22,7 @@ unsigned bytes to a browser wallet, a WalletConnect session, a hardware device
 or any signer you write.
 
 > **Alpha.** The version is `0.0.x`, and any release may change any API. Pin an
-> exact version (`npm install kalvora.js@0.0.1-alpha.1`), test on protonet
+> exact version (`npm install kalvora.js@0.0.1-alpha.2`), test on protonet
 > before anything touches real funds, and please
 > [report issues](https://github.com/IntoTheDerk/kalvora.js/issues).
 

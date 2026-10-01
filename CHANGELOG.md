@@ -5,13 +5,10 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is `0.0.x`, any
 release may change APIs; pin an exact version.
 
-## [0.0.1-alpha.1] — Unreleased (alpha pre-release)
+## [0.0.1-alpha.2] — 2026-10-01
 
-Documentation cleanup, a rewritten README, and a few SDK-only renames. Key
-derivation and every derived address are byte-identical to 0.0.1-alpha.0.
-
-Earlier builds (`0.1.0` and `0.0.1-alpha.0`) are withdrawn from npm and
-replaced by this release.
+Checksummed contract IDs, executable governance proposals, and the re-issued
+`kal_guardian` proto.
 
 ### Changed
 
@@ -27,6 +24,37 @@ replaced by this release.
   gains `KALVORA` (`0`), `ETHEREUM` (`2`) and `ZERA` (`3`).
   `NETWORK_TYPE_KALVORA` is unchanged (`0`); `GUARDIAN_KALVORA_PAYLOAD_CASE`
   is now `'kalPayload'`. The `KalvoraGuardian*Payload` aliases keep working.
+
+### Added
+
+- Contract-id helpers: `deriveGenesisContractId`, `deriveOrdinaryContractId`,
+  `deriveContractDataHash`, `encodeContractId`, `isCanonicalContractId`,
+  `decodeContractId`, `GENESIS_CONTRACT_IDS`, and `GENESIS_CONTRACT_NONCES`.
+  `buildContractTXN` derives the id from `vanityNonce`. See
+  [Contract IDs](./docs/guides/contract-ids.md).
+- `buildGovernanceProposalTXN` (`buildGovernanceProposal`) for proposals that
+  carry transactions, plus `applyProposalStageFee` and
+  `FORBIDDEN_OPTION_WORDS`. Usage, including a coin transfer attachment, is
+  in [src/proposal/README.md](./src/proposal/README.md).
+- Query helpers: `getContractItem`, `acceptSmartContractEvent`,
+  `verifySmartContractEventSignature`, `nextSmartContractEventSearchStart`.
+  `getContractSupply` also returns `circulation`.
+- `itemFeeParts` and `parseUint256`. Builder aliases `buildCoinTransfer`,
+  `buildInstrumentContract`, `buildItemMint`, `buildNftTransfer`,
+  `buildSbtBurn`, `buildRevoke`, and signed `buildMint`.
+- The 2026-09-30 SDK audit is recorded in
+  [docs/audit-2026-09-30.md](./docs/audit-2026-09-30.md).
+
+## [0.0.1-alpha.1] — 2026-09-29
+
+Documentation cleanup, a rewritten README, and a few SDK-only renames. Key
+derivation and every derived address are byte-identical to 0.0.1-alpha.0.
+
+Earlier builds (`0.1.0` and `0.0.1-alpha.0`) are withdrawn from npm and
+replaced by this release.
+
+### Changed
+
 - **Breaking:** the Solana bridge lock options (`LockSplOptions`,
   `LockSolOptions`, `LockToken2022Options` and the token-type routed lock)
   take `kalvoraAddress`, and `BurnWrappedOptions` takes `kalvoraRecipient`.
@@ -51,21 +79,6 @@ replaced by this release.
 
 ### Added
 
-- Contract-id helpers: `deriveGenesisContractId`, `deriveOrdinaryContractId`,
-  `deriveContractDataHash`, `encodeContractId`, `isCanonicalContractId`,
-  `decodeContractId`, `GENESIS_CONTRACT_IDS`, and `GENESIS_CONTRACT_NONCES`.
-  `buildContractTXN` derives the id from `vanityNonce`. See
-  [Contract IDs](./docs/guides/contract-ids.md).
-- `buildGovernanceProposalTXN` (`buildGovernanceProposal`) for proposals that
-  carry transactions, plus `applyProposalStageFee` and
-  `FORBIDDEN_OPTION_WORDS`. Usage, including a coin transfer attachment, is
-  in [src/proposal/README.md](./src/proposal/README.md).
-- Query helpers: `getContractItem`, `acceptSmartContractEvent`,
-  `verifySmartContractEventSignature`, `nextSmartContractEventSearchStart`.
-  `getContractSupply` also returns `circulation`.
-- `itemFeeParts` and `parseUint256`. Builder aliases `buildCoinTransfer`,
-  `buildInstrumentContract`, `buildItemMint`, `buildNftTransfer`,
-  `buildSbtBurn`, `buildRevoke`, and signed `buildMint`.
 - Wallet protocol constants, exported from the package root and pinned by
   tests: `KALVORA_INJECTED_PROVIDER_KEY`, `KALVORA_PROVIDER_FLAG`,
   `KALVORA_PROVIDER_METHODS`, `KALVORA_DEEP_LINK_SCHEME`,
