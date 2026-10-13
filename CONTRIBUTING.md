@@ -72,6 +72,18 @@ Title the PR in [Conventional Commits](https://www.conventionalcommits.org/) sty
 
 Don't add AI attribution: no `Co-Authored-By:` trailers naming an AI tool and no "Generated with ..." lines in commits or PR descriptions. CI rejects PRs that contain them.
 
+## Development integration
+
+`dev` consolidates reviewed changes for testing by SDK consumers. It starts from
+`main` and runs the same Node 20 and 24 validation and build checks on every push.
+Open a public pull request targeting `dev` for integration work, wait for all CI
+checks to pass, resolve review findings, and squash-merge it. Never force-push
+shared branches or bypass branch protections.
+
+Changes intended for a release must also be reviewed in a pull request targeting
+`main`. Testing against `dev` does not change the version published to npm; pin
+an exact released version or reviewed commit when integrating a consumer.
+
 ## Releases
 
 Maintainers release from `main`: bump the version and CHANGELOG in a PR, merge it, tag the merge commit `vX.Y.Z`, create the GitHub release, and publish to npm.
