@@ -66,7 +66,7 @@ Keep PRs focused. One feature or fix per PR is easier to review than a grab-bag 
 
 In your PR description, explain **what** changed and **why**. If there's a related issue, reference it. If the change affects the public API, call that out explicitly.
 
-All PRs should pass linting, type-checking, and tests before requesting review. CI runs `validate` and `build` on Node 20 and 24 for every PR.
+All PRs should pass linting, type-checking, and tests before requesting review. CI runs `validate` and `build` on Node 20, 24 and 26 for every PR.
 
 Title the PR in [Conventional Commits](https://www.conventionalcommits.org/) style (`fix(query): ...`, `feat!: ...`). PRs are **squash-merged**, so the PR title and description become the single commit on `main`; your branch's individual commits don't need to be tidy, and the branch is deleted after merge. To catch up with `main`, merge or rebase your branch as you prefer, but never force-push `main`.
 
@@ -75,7 +75,7 @@ Don't add AI attribution: no `Co-Authored-By:` trailers naming an AI tool and no
 ## Development integration
 
 `dev` consolidates reviewed changes for testing by SDK consumers. It starts from
-`main` and runs the same Node 20 and 24 validation and build checks on every push.
+`main` and runs the same Node 20, 24 and 26 validation and build checks on every push.
 Open a public pull request targeting `dev` for integration work, wait for all CI
 checks to pass, resolve review findings, and squash-merge it. Never force-push
 shared branches or bypass branch protections.
