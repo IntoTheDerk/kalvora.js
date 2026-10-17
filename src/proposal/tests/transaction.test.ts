@@ -10,6 +10,7 @@ import {
 import { UniversalFeeCalculator } from '../../shared/fee-calculators/universal-fee-calculator.js';
 import {
   buildTextGovernanceProposalTXN,
+  TEXT_PROPOSAL_LIMITS,
   type BuildTextGovernanceProposalTXNOptions,
   type ProposalConstructionContext,
   type TextGovernanceProposalInput
@@ -80,6 +81,48 @@ describe('buildTextGovernanceProposalTXN', () => {
     expect(decoded.options).toEqual([]);
     expect(decoded.base?.signature).toBeUndefined();
     expect(decoded.base?.hash).toBeUndefined();
+  });
+
+  it.each([
+    ['leading four-space code', '    const x = 1;\n'],
+    ['final line feed', '# Plan\n\nPublish the report.\n'],
+    ['hard-break and final spaces', 'First line  \nSecond line  '],
+    ['blank edges and tabs', '\n\n\tcode\n\n'],
+    ['NFC and supplementary Unicode', '    café 😀\n']
+  ])('preserves Markdown %s through construction and protobuf round-trip', async (_label, body) => {
+    const authored = { ...input, body };
+    const proposal = await buildTextGovernanceProposalTXN(
+      authored, vector.publicKey, deterministicOptions
+    );
+    const bytes = toBinary(GovernanceProposalSchema, proposal);
+    const decoded = fromBinary(GovernanceProposalSchema, bytes);
+
+    expect(authored.body).toBe(body);
+    expect(proposal.body).toBe(body);
+    expect(decoded.body).toBe(body);
+    expect(toBinary(GovernanceProposalSchema, decoded)).toEqual(bytes);
+    expect(proposal.base?.signature).toBeUndefined();
+    expect(proposal.base?.hash).toBeUndefined();
+  });
+
+  it.each(['', ' ', '\t\n  \n', '\u00a0\n'])(
+    'rejects a blank Markdown body %j', async (body) => {
+      await expect(buildTextGovernanceProposalTXN(
+        { ...input, body }, vector.publicKey, deterministicOptions
+      )).rejects.toThrow('body must be non-empty canonical UTF-8 text');
+    }
+  );
+
+  it('counts preserved body edges and multibyte text against the UTF-8 byte limit', async () => {
+    const body = `    ${'é'.repeat((TEXT_PROPOSAL_LIMITS.bodyUtf8Bytes - 6) / 2)}x\n`;
+    expect(new TextEncoder().encode(body)).toHaveLength(TEXT_PROPOSAL_LIMITS.bodyUtf8Bytes);
+    const proposal = await buildTextGovernanceProposalTXN(
+      { ...input, body }, vector.publicKey, deterministicOptions
+    );
+    expect(fromBinary(GovernanceProposalSchema, toBinary(GovernanceProposalSchema, proposal)).body).toBe(body);
+    await expect(buildTextGovernanceProposalTXN(
+      { ...input, body: `${body} ` }, vector.publicKey, deterministicOptions
+    )).rejects.toThrow('body must be non-empty canonical UTF-8 text');
   });
 
   it('retains non-empty proposal field 10 in the generated wire schema', () => {
@@ -287,12 +330,23 @@ describe('buildTextGovernanceProposalTXN', () => {
     ['contractId', '$../../-evil+000000'],
     ['title', ''],
     ['title', ' title'],
+    ['title', 'title '],
     ['title', 'bad\u0000title'],
     ['title', 'e\u0301'],
     ['title', 'spoof\u202etext'],
     ['title', `bad${String.fromCharCode(0xd800)}text`],
     ['synopsis', 'line one\nline two'],
-    ['body', 'bad\rbody']
+    ['synopsis', ' summary'],
+    ['synopsis', 'summary '],
+    ['body', 'bad\rbody'],
+    ['body', '    e\u0301\n'],
+    ['body', '    bad\u0000body\n'],
+    ['body', '    bad\u202ebody\n'],
+    ['body', '    bad\u2028body\n'],
+    ['body', '    bad\u2029body\n'],
+    ['body', `    bad${String.fromCharCode(0xd800)}text\n`],
+    ['body', `    bad${String.fromCharCode(0xdc00)}text\n`],
+    ['body', `    bad${String.fromCharCode(0xd800)}`]
   ] as const)('rejects non-canonical %s input', async (field, value) => {
     await expect(
       buildTextGovernanceProposalTXN(
