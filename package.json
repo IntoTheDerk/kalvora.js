@@ -31,6 +31,7 @@
     "test:live": "vitest run src/query/tests/live.test.ts",
     "docs": "typedoc",
     "validate": "npm run type-check && npm run lint:check && npm test",
+    "prepare": "npm ci --prefix proto --include=dev --no-audit --no-fund && npm run build",
     "prepublishOnly": "npm run validate && npm run build",
     "deploy": "tsx publishing/deploy.ts",
     "deploy:patch": "tsx publishing/deploy.ts patch",
