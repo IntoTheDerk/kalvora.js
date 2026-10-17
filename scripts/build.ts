@@ -538,7 +538,9 @@ function validateBuild(): void {
     'index.mjs',
     'index.cjs',
     'wallet.js',
-    'wallet.d.ts'
+    'wallet.d.ts',
+    'native.js',
+    'native.d.ts'
   ];
   
   for (const file of requiredFiles) {

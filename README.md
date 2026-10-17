@@ -60,9 +60,11 @@ or any signer you write.
 npm install kalvora.js
 ```
 
-Requires Node.js 20 or later, a modern browser, or React Native. The Solana
-bridge helpers use the optional dependencies `@solana/web3.js` and
-`@solana/spl-token`; everything else works without them.
+Requires Node.js 20 or later, a modern browser, or React Native. The full ESM
+root eagerly loads the Solana bridge and requires the optional dependencies
+`@solana/web3.js` and `@solana/spl-token`. Use `kalvora.js/native` for native
+queries and governance operations without those packages, or `kalvora.js/wallet`
+for keys only.
 
 ## Quick start
 
@@ -172,6 +174,26 @@ derivation, key pairs, address encoding). It depends only on `@noble/curves`,
 transaction code, and never touches the network, which makes it a good fit for
 a browser custody layer. It is ESM-only; CommonJS callers use the main entry,
 which exports the same functions.
+
+### Native entry: `kalvora.js/native`
+
+`kalvora.js/native` is ESM-only and exports the existing native client,
+governance proposal/vote builders, proposal submission, stage-fee arithmetic,
+serialization, address and contract validation, RPC errors, enums, and their
+types and SDK `VERSION`. It also exposes `UniversalFeeCalculator` for callers
+supplying explicit native fee metadata. It has no Solana bridge import; network
+operations still use the same SDK implementations and configuration.
+
+```typescript
+import { KalvoraClient, buildVoteTXN, serializeTransaction } from 'kalvora.js/native';
+import type { GRPCConfig, ProposalConstructionContext } from 'kalvora.js/native';
+```
+
+Installing a prebuilt package with `--omit=optional` supports this entry. Building
+the full SDK from source, including its Git `prepare` step, still needs the
+bridge dependencies. The root API and CommonJS bundle are unchanged; the CJS
+bundle includes bridge dependency code even when optional packages are omitted.
+This entry does not remove bundled bytes or establish a clean security audit.
 
 ### Derivation
 
@@ -331,8 +353,9 @@ function carries TSDoc. Generate the API reference with `npm run docs`
 |---|---|---|
 | `kalvora.js` | The full SDK: client, queries, wallets, signing, every transaction builder, adapters, use cases, raw protobuf bindings (`proto`) | ESM, CommonJS, React Native, types |
 | `kalvora.js/wallet` | Wallets and keys only: mnemonics, HD derivation, key pairs, addresses. No network or protobuf code | ESM, types |
+| `kalvora.js/native` | Native client and governance operations, encoding, validation and fee calculation; no optional Solana bridge import | ESM, types |
 
-Every public API is exported from one of these two entry points; deep imports
+Every public API is exported from one of these entry points; deep imports
 into `dist/` are not supported.
 
 ## Stability
