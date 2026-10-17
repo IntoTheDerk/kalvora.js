@@ -92,13 +92,20 @@ console.log('Native public package: optional dependencies absent; query/build/fe
 export function validateNativePackage(projectRoot: string): void {
   const fixture = mkdtempSync(join(tmpdir(), 'kalvora-native-package-'));
   try {
+    const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'));
+    // Probe the emitted package in isolation: npm 10 can re-enter prepare when
+    // packing the source root from inside its own prepare/build lifecycle.
+    // Keep exports/files/dependencies intact; remove lifecycle scripts only here.
+    delete manifest.scripts;
+    writeFileSync(join(fixture, 'package.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+    for (const file of [...manifest.files, 'package-lock.json']) {
+      cpSync(join(projectRoot, file), join(fixture, file), { recursive: true });
+    }
     const packed = JSON.parse(execFileSync('npm', ['pack', '--dry-run', '--ignore-scripts', '--json'], {
-      cwd: projectRoot, encoding: 'utf8', timeout: 60_000
+      cwd: fixture, encoding: 'utf8', timeout: 60_000
     }));
     const publishedFiles = new Set(packed[0].files.map((file: { path: string }) => file.path));
     for (const file of ['dist/native.js', 'dist/native.d.ts']) assert.ok(publishedFiles.has(file), `${file} is published`);
-    cpSync(join(projectRoot, 'dist'), join(fixture, 'dist'), { recursive: true });
-    for (const file of ['package.json', 'package-lock.json']) cpSync(join(projectRoot, file), join(fixture, file));
     execFileSync('npm', ['ci', '--omit=dev', '--omit=optional', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], {
       cwd: fixture, stdio: 'pipe', timeout: 120_000
     });
