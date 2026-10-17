@@ -15,8 +15,9 @@
  * 10. Protocol              — enums, message types, raw generated bindings
  * 11. Network constants & utilities
  *
- * Every public API is available from the package root; deep `dist/*` imports
- * are not needed and not supported.
+ * Narrow ESM entries are available as `kalvora.js/wallet` and
+ * `kalvora.js/native`; the latter also exposes `UniversalFeeCalculator`.
+ * Deep `dist/*` imports are not needed and not supported.
  *
  * @packageDocumentation
  */
@@ -528,7 +529,7 @@ export {
 export { bytesToHex, hexToBytes } from './src/shared/utils/byte-utils.js';
 
 /** SDK version. */
-export const VERSION = '0.0.1-alpha.2' as const;
+export { VERSION } from './src/version.js';
 
 /** SDK description. */
 export const DESCRIPTION = 'Kalvora JavaScript SDK' as const;

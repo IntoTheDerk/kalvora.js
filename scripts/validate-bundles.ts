@@ -17,6 +17,8 @@ import { runInNewContext } from 'vm';
 
 import { build as buildWithEsbuild } from 'esbuild';
 
+import { validateNativePackage } from './validate-native-package.js';
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, '..');
@@ -53,7 +55,7 @@ function section(title: string): void {
 
 section('File Existence');
 
-const requiredFiles = ['index.js', 'index.mjs', 'index.cjs', 'index.d.ts'];
+const requiredFiles = ['index.js', 'index.mjs', 'index.cjs', 'index.d.ts', 'native.js', 'native.d.ts'];
 for (const file of requiredFiles) {
   const filePath = join(distDir, file);
   if (existsSync(filePath) && statSync(filePath).size > 0) {
@@ -237,6 +239,17 @@ try {
   } else {
     fail('Could not compare exports (one or both bundles failed to load)');
   }
+}
+
+// ─── Native Public Package Without Optional Dependencies ─────────────
+
+section('Native Public Package Without Optional Dependencies');
+
+try {
+  validateNativePackage(projectRoot);
+  pass('Native ESM entry and consumer types work without optional packages');
+} catch (err) {
+  fail('Native public package validation failed', (err as Error).message);
 }
 
 // ─── Summary ─────────────────────────────────────────────────────────

@@ -88,6 +88,11 @@
       "import": "./dist/wallet.js",
       "default": "./dist/wallet.js"
     },
+    "./native": {
+      "types": "./dist/native.d.ts",
+      "import": "./dist/native.js",
+      "default": "./dist/native.js"
+    },
     "./dist/*": "./dist/*"
   },
   "overrides": {

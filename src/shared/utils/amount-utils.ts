@@ -9,7 +9,7 @@
  * - Precision handling for different token decimals
  */
 
-import Decimal from 'decimal.js';
+import { Decimal } from 'decimal.js';
 
 import type { AmountInput } from '../../types/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../network/constants.js';
