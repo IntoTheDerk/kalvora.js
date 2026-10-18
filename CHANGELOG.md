@@ -5,6 +5,20 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is `0.0.x`, any
 release may change APIs; pin an exact version.
 
+## Unreleased
+
+### Changed
+
+- **Breaking (installation):** Solana bridge dependencies are now optional peers
+  rather than automatically installed optional dependencies. Native Kalvora and
+  wallet ESM consumers no longer install the legacy Solana dependency tree. Full
+  root ESM/bridge consumers must explicitly install `@solana/web3.js` and
+  `@solana/spl-token`. Source builds retain both as development dependencies;
+  transaction bytes, root exports and the bundled CommonJS API are unchanged.
+  Optional peer version constraints also apply to native/wallet-only consumers
+  with Solana already installed: incompatible pins can fail npm installation
+  with `ERESOLVE`. This broader alpha installation constraint is intentional.
+
 ## [0.0.1-alpha.2] — 2026-10-01
 
 Checksummed contract IDs, executable governance proposals, and the re-issued

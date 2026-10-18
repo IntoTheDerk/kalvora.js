@@ -1,9 +1,13 @@
 /** Exercise the emitted public entry with genuinely absent optional packages. */
 import assert from 'node:assert/strict';
-import { execFileSync } from 'node:child_process';
-import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { execFile, execFileSync } from 'node:child_process';
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { createServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 
 const runtimeCheck = `
 import assert from 'node:assert/strict';
@@ -32,6 +36,10 @@ let input = ''; for await (const chunk of process.stdin) input += chunk;
 const vector = JSON.parse(input);
 Date.now = () => Date.parse('2026-07-25T09:22:00.000Z');
 const sdk = await import('kalvora.js/native');
+const wallet = await import('kalvora.js/wallet');
+assert.equal(wallet.generateAddressFromPublicKey(vector.publicKey), vector.constructionContext.walletAddress);
+const pair = await wallet.createWallet({ keyType: wallet.KEY_TYPE.ED25519, mnemonic: 'abandon '.repeat(11) + 'about' });
+assert.equal(wallet.generateAddressFromPublicKey(pair.publicKey), pair.address);
 for (const name of ['KalvoraClient', 'KalvoraRpcError', 'isKalvoraRpcError', 'RpcCode',
   'PROPOSAL_TYPE', 'PROPOSAL_PHASE', 'PRE_GOVERNANCE_OUTCOME', 'ProposalType',
   'buildTextGovernanceProposalTXN', 'sendGovernanceProposalTXN', 'buildVoteTXN',
@@ -39,9 +47,9 @@ for (const name of ['KalvoraClient', 'KalvoraRpcError', 'isKalvoraRpcError', 'Rp
   'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION']) {
   assert.notEqual(sdk[name], undefined, name + ' is exported');
 }
-assert.equal(sdk.VERSION, JSON.parse(readFileSync('package.json', 'utf8')).version);
+assert.equal(sdk.VERSION, JSON.parse(readFileSync('node_modules/kalvora.js/package.json', 'utf8')).version);
 const { createRouterTransport } = await import('@connectrpc/connect');
-const { APIService } = await import('./dist/proto/generated/kal_api_pb.js');
+const { APIService } = await import('./node_modules/kalvora.js/dist/proto/generated/kal_api_pb.js');
 let nonceReads = 0;
 const transport = createRouterTransport(router => router.service(APIService, {
   nonce: () => { nonceReads++; return { nonce: 9007199254740992n }; }
@@ -85,11 +93,11 @@ for (const support of [true, false]) {
 await assert.rejects(import('kalvora.js'), error =>
   error.code === 'ERR_MODULE_NOT_FOUND' && error.message.includes('@solana/'));
 assert.equal(networkAttempts, 0);
-console.log('Native public package: optional dependencies absent; query/build/fee/encoding checks passed; zero network attempts.');
+console.log('Native public package: ordinary consumer install, optional peers absent; query/build/fee/encoding checks passed; zero network attempts.');
 `;
 
 /** npm ci supplies its cache; this fixture never copies or populates a second cache. */
-export function validateNativePackage(projectRoot: string): void {
+export async function validateNativePackage(projectRoot: string): Promise<void> {
   const fixture = mkdtempSync(join(tmpdir(), 'kalvora-native-package-'));
   try {
     const manifest = JSON.parse(readFileSync(join(projectRoot, 'package.json'), 'utf8'));
@@ -106,15 +114,45 @@ export function validateNativePackage(projectRoot: string): void {
     }));
     const publishedFiles = new Set(packed[0].files.map((file: { path: string }) => file.path));
     for (const file of ['dist/native.js', 'dist/native.d.ts']) assert.ok(publishedFiles.has(file), `${file} is published`);
-    // Git dependency preparation inherits dev/peer/optional include flags.
-    // Exercise that environment in source builds too; the explicit CLI include
-    // must override it so the runtime fixture genuinely omits optional packages.
-    execFileSync('npm', ['ci', '--include=prod', '--omit=dev', '--omit=optional', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], {
-      cwd: fixture, stdio: 'pipe', timeout: 120_000,
+    const archive = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json'], {
+      cwd: fixture, encoding: 'utf8', timeout: 60_000
+    }))[0].filename;
+    const consumer = join(fixture, 'consumer');
+    mkdirSync(consumer);
+    const consumerManifest = {
+      name: 'native-consumer', private: true, type: 'module',
+      dependencies: { 'kalvora.js': `file:../${archive}` }
+    };
+    writeFileSync(join(consumer, 'package.json'), JSON.stringify(consumerManifest));
+    // Reuse the repository's resolved production versions/cache so clean CI
+    // does not need cached registry packuments or another dependency resolution.
+    const sourceLock = JSON.parse(readFileSync(join(projectRoot, 'package-lock.json'), 'utf8'));
+    const packages = Object.fromEntries(Object.entries(sourceLock.packages)
+      .filter(([path, value]) => path && !(value as { dev?: boolean }).dev));
+    writeFileSync(join(consumer, 'package-lock.json'), JSON.stringify({
+      name: consumerManifest.name, lockfileVersion: 3, requires: true,
+      packages: {
+        '': consumerManifest, ...packages,
+        'node_modules/kalvora.js': {
+          version: manifest.version, resolved: `file:../${archive}`,
+          dependencies: manifest.dependencies, peerDependencies: manifest.peerDependencies,
+          peerDependenciesMeta: manifest.peerDependenciesMeta
+        }
+      }
+    }));
+    // An ordinary install must leave optional peers absent, including when this
+    // validator runs inside Git prepare with inherited include flags. No blanket
+    // omit=optional: native build tools may need their own optional binaries.
+    execFileSync('npm', ['install', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], {
+      cwd: consumer, stdio: 'pipe', timeout: 120_000,
       env: { ...process.env, npm_config_include: ['dev', 'peer', 'optional'].join('\n\n') }
     });
-    writeFileSync(join(fixture, 'consumer.ts'), `
+    writeFileSync(join(consumer, 'consumer.ts'), `
 import { KalvoraClient, UniversalFeeCalculator, VERSION } from 'kalvora.js/native';
+import { createWallet, KEY_TYPE, generateAddressFromPublicKey } from 'kalvora.js/wallet';
+import type { Wallet } from 'kalvora.js/wallet';
+const wallet: Promise<Wallet> = createWallet({ keyType: KEY_TYPE.ED25519, mnemonic: 'abandon '.repeat(11) + 'about' });
+void wallet; void generateAddressFromPublicKey;
 import type { GRPCConfig, KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, ProposalConstructionContext,
   SerializedTransaction, GovernanceProposal, GovernanceVote, InstrumentContract,
   BuildTextGovernanceProposalTXNOptions, ProposalGovernanceType, TextGovernanceProposalInput,
@@ -131,12 +169,95 @@ export type Consumer = [KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, Prop
 `);
     execFileSync(process.execPath, [join(projectRoot, 'node_modules/typescript/bin/tsc'),
       '--noEmit', '--strict', '--target', 'es2020', '--module', 'nodenext',
-      '--moduleResolution', 'nodenext', 'consumer.ts'], { cwd: fixture, stdio: 'inherit', timeout: 60_000 });
+      '--moduleResolution', 'nodenext', 'consumer.ts'], { cwd: consumer, stdio: 'inherit', timeout: 60_000 });
     const result = execFileSync(process.execPath, ['--input-type=module', '-e', runtimeCheck], {
-      cwd: fixture, encoding: 'utf8', timeout: 60_000,
+      cwd: consumer, encoding: 'utf8', timeout: 60_000,
       input: readFileSync(join(projectRoot, 'src/proposal/tests/fixtures/text-proposal-v1.json'), 'utf8')
     });
     console.log(result.trim());
+
+    // Resolver-only peers: these local packages contain metadata, not Solana
+    // implementations. Real peer runtime/type compatibility is a separate check.
+    const peers: Record<string, { version: string; resolved: string }[]> = {};
+    for (const [name, versions] of [
+      ['@solana/web3.js', ['1.98.4', '1.95.8']],
+      ['@solana/spl-token', ['0.4.14', '0.4.13']]
+    ] as const) {
+      peers[name] = versions.map(version => {
+        const directory = `peer-${name.split('/')[1]}-${version}`;
+        const path = join(fixture, directory);
+        mkdirSync(path);
+        writeFileSync(join(path, 'package.json'), JSON.stringify({ name, version }));
+        const filename = JSON.parse(execFileSync('npm', ['pack', '--ignore-scripts', '--json'], {
+          cwd: path, encoding: 'utf8', timeout: 15_000
+        }))[0].filename;
+        return { version, resolved: `file:../${directory}/${filename}` };
+      });
+    }
+    // npm may request a replacement peer's packument before reporting a
+    // conflict. Warm only synthetic metadata via the public CLI and loopback;
+    // otherwise a clean cache can report ENOTCACHED instead of ERESOLVE.
+    const registry = createServer((request, response) => {
+      const name = decodeURIComponent((request.url ?? '').slice(1));
+      const entries = peers[name];
+      const latest = entries?.[0];
+      if (!entries || !latest) { response.writeHead(404).end(); return; }
+      response.setHeader('Content-Type', 'application/json');
+      response.end(JSON.stringify({ name, 'dist-tags': { latest: latest.version },
+        versions: Object.fromEntries(entries.map(peer => [peer.version, {
+          name, version: peer.version, dist: { tarball: peer.resolved }
+        }])) }));
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        registry.once('error', reject);
+        registry.listen(0, '127.0.0.1', resolve);
+      });
+      const address = registry.address();
+      assert.ok(address && typeof address !== 'string');
+      const resolverEnv = { ...process.env, npm_config_registry: `http://127.0.0.1:${address.port}`,
+        npm_config_include: ['dev', 'peer', 'optional'].join('\n\n'),
+        npm_config_legacy_peer_deps: 'false', npm_config_force: 'false', npm_config_strict_peer_deps: 'false' };
+      for (const name of Object.keys(peers)) {
+        await execFileAsync('npm', ['view', name, '--json', '--offline=false'], { env: resolverEnv, cwd: fixture, timeout: 15_000 });
+      }
+      for (const [label, web3, token, compatible] of [
+        ['compatible', 0, 0, true], ['incompatible-web3', 1, 0, false], ['incompatible-token', 0, 1, false]
+      ] as const) {
+        const path = join(fixture, label);
+        mkdirSync(path);
+        const web3Peer = peers['@solana/web3.js']?.[web3];
+        const tokenPeer = peers['@solana/spl-token']?.[token];
+        assert.ok(web3Peer && tokenPeer);
+        const selected = { '@solana/web3.js': web3Peer, '@solana/spl-token': tokenPeer };
+        const peerManifest = { ...consumerManifest, name: label, dependencies: {
+          ...consumerManifest.dependencies, ...Object.fromEntries(Object.entries(selected).map(([name, peer]) => [name, peer.version]))
+        } };
+        writeFileSync(join(path, 'package.json'), JSON.stringify(peerManifest));
+        const consumerLock = JSON.parse(readFileSync(join(consumer, 'package-lock.json'), 'utf8'));
+        writeFileSync(join(path, 'package-lock.json'), JSON.stringify({ ...consumerLock, name: label,
+          packages: { ...consumerLock.packages, '': peerManifest,
+            ...Object.fromEntries(Object.entries(selected).map(([name, peer]) => [
+              `node_modules/${name}`, { version: peer.version, resolved: peer.resolved }
+            ])) }
+        }));
+        const install = execFileAsync('npm', ['install', '--ignore-scripts', '--offline', '--no-audit', '--no-fund', '--json'], {
+          cwd: path, env: resolverEnv, timeout: 30_000
+        });
+        if (compatible) {
+          await install;
+          for (const [name, peer] of Object.entries(selected)) {
+            assert.equal(JSON.parse(readFileSync(join(path, 'node_modules', name, 'package.json'), 'utf8')).version, peer.version);
+          }
+        }
+        else await assert.rejects(install, error => error instanceof Error && 'stdout' in error
+          && JSON.parse(String(error.stdout)).error?.code === 'ERESOLVE', label);
+      }
+      console.log('Optional peer coexistence: compatible install passed; incompatible web3/token pins each returned ERESOLVE (synthetic peers; no bridge API checks).');
+    } finally {
+      registry.closeAllConnections();
+      await new Promise<void>(resolve => registry.close(() => resolve()));
+    }
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }

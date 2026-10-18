@@ -246,7 +246,7 @@ try {
 section('Native Public Package Without Optional Dependencies');
 
 try {
-  validateNativePackage(projectRoot);
+  await validateNativePackage(projectRoot);
   pass('Native ESM entry and consumer types work without optional packages');
 } catch (err) {
   fail('Native public package validation failed', (err as Error).message);

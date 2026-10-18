@@ -3,7 +3,8 @@
  *
  * Re-exports the existing implementations without loading the optional Solana
  * bridge. This entry is ESM-only, like kalvora.js/wallet. The package root and
- * its CommonJS bundle retain their existing API and bridge dependencies.
+ * its CommonJS bundle retain their existing API and bridge code. The full ESM
+ * root requires the explicit optional Solana peers; this entry does not.
  */
 
 export { KalvoraClient, type KalvoraClientOptions } from './src/client/kalvora-client.js';
