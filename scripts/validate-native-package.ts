@@ -106,8 +106,12 @@ export function validateNativePackage(projectRoot: string): void {
     }));
     const publishedFiles = new Set(packed[0].files.map((file: { path: string }) => file.path));
     for (const file of ['dist/native.js', 'dist/native.d.ts']) assert.ok(publishedFiles.has(file), `${file} is published`);
-    execFileSync('npm', ['ci', '--omit=dev', '--omit=optional', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], {
-      cwd: fixture, stdio: 'pipe', timeout: 120_000
+    // Git dependency preparation inherits dev/peer/optional include flags.
+    // Exercise that environment in source builds too; the explicit CLI include
+    // must override it so the runtime fixture genuinely omits optional packages.
+    execFileSync('npm', ['ci', '--include=prod', '--omit=dev', '--omit=optional', '--ignore-scripts', '--offline', '--no-audit', '--no-fund'], {
+      cwd: fixture, stdio: 'pipe', timeout: 120_000,
+      env: { ...process.env, npm_config_include: ['dev', 'peer', 'optional'].join('\n\n') }
     });
     writeFileSync(join(fixture, 'consumer.ts'), `
 import { KalvoraClient, UniversalFeeCalculator, VERSION } from 'kalvora.js/native';
