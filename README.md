@@ -61,10 +61,27 @@ npm install kalvora.js
 ```
 
 Requires Node.js 20 or later, a modern browser, or React Native. The full ESM
-root eagerly loads the Solana bridge and requires the optional dependencies
-`@solana/web3.js` and `@solana/spl-token`. Use `kalvora.js/native` for native
-queries and governance operations without those packages, or `kalvora.js/wallet`
-for keys only.
+root eagerly loads the Solana bridge. Its bridge dependencies are optional peers
+and are **not installed automatically**. Use `kalvora.js/native` for native
+queries and governance operations, or `kalvora.js/wallet` for keys only. Neither
+entry requires the Solana packages.
+
+Optional peers still impose package-wide version constraints when present. This
+also applies to consumers importing only `/native` or `/wallet`: existing
+`@solana/web3.js` must satisfy `^1.98.4`, and existing `@solana/spl-token` must
+satisfy `^0.4.14`. Incompatible pinned versions can cause npm `ERESOLVE` before
+any SDK code runs. This installation constraint is intentional on the alpha
+development line; consumers without Solana packages need not add them.
+
+Before using the full root ESM API or the bridge examples, install the peers:
+
+```bash
+npm install kalvora.js @solana/web3.js@^1.98.4 @solana/spl-token@^0.4.14
+```
+
+Existing root ESM consumers upgrading from automatic optional dependencies must
+add these two dependencies explicitly. The CommonJS bundle still contains bridge
+code; use the narrow ESM entries to avoid loading it.
 
 ## Quick start
 
@@ -189,11 +206,12 @@ import { KalvoraClient, buildVoteTXN, serializeTransaction } from 'kalvora.js/na
 import type { GRPCConfig, ProposalConstructionContext } from 'kalvora.js/native';
 ```
 
-Installing a prebuilt package with `--omit=optional` supports this entry. Building
-the full SDK from source, including its Git `prepare` step, still needs the
-bridge dependencies. The root API and CommonJS bundle are unchanged; the CJS
-bundle includes bridge dependency code even when optional packages are omitted.
-This entry does not remove bundled bytes or establish a clean security audit.
+An ordinary consumer install supports this entry without Solana packages or
+`--omit=optional`. Building the full SDK from source, including its Git `prepare`
+step, installs the bridge packages as development dependencies for its build and
+tests; they are not propagated to consumers. The root exports and CommonJS
+bundle retain their bridge code. This packaging boundary does not remediate
+advisories in bridge consumers or remove code from the full CommonJS bundle.
 
 ### Derivation
 
