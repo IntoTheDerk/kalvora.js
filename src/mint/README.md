@@ -6,8 +6,7 @@ wallet (rpc `TXNService.Mint`).
 ## Permission required
 
 The signer's public key must be a `RestrictedKey` on the contract with
-`mint = true`. If that key has a `time_delay`, the mint is held pending and
-can be cancelled with a [`QuashTXN`](../quash/README.md) until the delay ends.
+`mint = true`.
 
 ## Amount units
 

@@ -17,7 +17,6 @@ const TRANSACTION_TYPES = [
   'ContractTXN',
   'ContractUpdateTXN',
   'RevokeTXN',
-  'QuashTXN',
   'ComplianceTXN',
   'ExpenseRatioTXN',
   'AllowanceTXN',
@@ -41,6 +40,14 @@ describe('package root exports', () => {
     for (const verb of ['build', 'create', 'send']) {
       expect(exported[`${verb}${type}`], `${verb}${type}`).toBeTypeOf('function');
     }
+  });
+
+  it('does not expose retired Quash builders or protocol messages', () => {
+    for (const verb of ['build', 'create', 'send']) {
+      expect(exported[`${verb}QuashTXN`]).toBeUndefined();
+    }
+    expect(sdk.proto.txn).not.toHaveProperty('QuashTXNSchema');
+    expect(sdk.TRANSACTION_TYPE).not.toHaveProperty('QUASH_TYPE');
   });
 
   it('exposes governance proposal lifecycle', () => {

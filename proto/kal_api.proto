@@ -222,6 +222,8 @@ message DatabaseRequest{
 
 message DatabaseResponse{
     string value = 1;
+    // Database is a raw diagnostic read; value is not certified history.
+    bool diagnostic_unverified = 2;
 }
 
 message ActivityRequest{
@@ -256,10 +258,17 @@ message SmartContractEventsResponse{
 message SmartContractEventsSearchRequest{
     string smart_contract_id = 1;
     google.protobuf.Timestamp search_start = 2;
+    // Paging is opt-in. A zero page_size keeps the legacy all-or-error result.
+    uint32 page_size = 3;
+    bytes page_cursor = 4;
 }
 
 message SmartContractEventsSearchResponse{
     repeated SmartContractEventsResponse events = 1;
+    // Empty means this page is complete. The cursor binds to one index version.
+    bytes next_page_cursor = 2;
+    // Paged clients must compare this signed digest with their exact request.
+    bytes request_digest = 3;
     kal_txn.PublicKey public_key = 13; // validator public key
     bytes signature = 14; // validator signature
 }
@@ -269,6 +278,9 @@ message SmartContractEventManagementTemp{
 }
 message SmartContractEventManagement{
     map<string, google.protobuf.Timestamp> events = 1;
+    // Changes when a block commits events for this contract, even if a reorg
+    // replays the same transaction keys and timestamps with different bodies.
+    bytes last_update_block_hash = 2;
 }
 
 message SmartContractSubscription{

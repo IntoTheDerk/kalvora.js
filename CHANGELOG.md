@@ -5,6 +5,32 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is `0.0.x`, any
 release may change APIs; pin an exact version.
 
+## [Unreleased]
+
+### Changed
+
+- **Breaking:** sync the 2026-10-27 clean-genesis network protos and regenerate
+  bindings. Configure a trusted 32-byte chain ID with
+  `configureTransactionContext` before building or signing. Signers validate
+  the pinned chain, signature domain, and concrete transaction type.
+- **Breaking:** remove Quash APIs and retired restricted-key delay/quash and
+  contract quash-threshold fields. Legacy signed transactions must be rebuilt
+  and signed again.
+- **Breaking:** smart-contract execute/instantiate allowances use a finite
+  uint256 `allowedAmount` or the exact string `"unlimited"`. Omitted lists
+  and unlisted tokens have zero caller-wallet spending budget.
+- Processing-result decoders require explicit `TXNStatusFees.status` presence;
+  transaction polling ignores hash-only rows. Receipt polling does not verify
+  block finality evidence.
+
+### Added
+
+- Canonical offline/multisig signing and hashing helpers, sponsor signing
+  bytes, and explicit transaction-context overrides. See
+  [transaction signing](./src/sign/README.md).
+- Optional BLS attestation key input for validator registration, with key/proof
+  byte-length validation.
+
 ## [0.0.1-alpha.2] — 2026-10-01
 
 Checksummed contract IDs, executable governance proposals, and the re-issued

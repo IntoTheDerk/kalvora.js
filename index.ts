@@ -126,9 +126,14 @@ export {
   signWithKey,
   signCoinTXN,
   signCoinTXNWithKeys,
+  getTransactionSigningBytes,
+  getSponsorSigningBytes,
+  finalizeTransactionHash,
   type KalvoraSigner,
   type CoinTXNKeyPair
 } from './src/sign/index.js';
+
+export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './src/sign/context.js';
 
 // ============================================================================
 // 6. TRANSACTIONS
@@ -180,9 +185,8 @@ export {
   type UpdateContractOptions
 } from './src/contract/index.js';
 
-// Contract administration (RevokeTXN, QuashTXN, ComplianceTXN, ExpenseRatioTXN)
+// Contract administration (RevokeTXN, ComplianceTXN, ExpenseRatioTXN)
 export * from './src/revoke/index.js';
-export * from './src/quash/index.js';
 export * from './src/compliance/index.js';
 export * from './src/expense-ratio/index.js';
 
@@ -269,6 +273,7 @@ export {
   createSmartContractInstantiateTXN,
   sendSmartContractInstantiateTXN,
   type InstantiateParameter,
+  type SmartContractAllowanceInput,
   type BuildSmartContractInstantiateTXNOptions,
   type CreateSmartContractInstantiateTXNOptions,
   type SmartContractParameter
@@ -468,7 +473,6 @@ export type {
   SmartContractExecuteTXN,
   ExpenseRatioTXN,
   DelegatedTXN,
-  QuashTXN,
   RevokeTXN,
   ComplianceTXN,
   AllowanceTXN,

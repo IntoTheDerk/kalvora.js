@@ -15,6 +15,7 @@ import {
 import { ValidatorService } from '../../../proto/generated/validator_pb.js';
 import { getPublicKeyBytes } from '../../shared/crypto/address-utils.js';
 import { bytesToHex } from '../../shared/utils/byte-utils.js';
+import { configureTransactionContext } from '../../sign/context.js';
 import { signWithKey } from '../../sign/finalize.js';
 import { ED25519_TEST_KEYS, ED448_TEST_KEYS } from '../../test-utils/keys.test.js';
 import {
@@ -69,6 +70,30 @@ function withValidator(override: Record<string, unknown>): ValidatorRegistration
 }
 
 describe('ValidatorRegistration', () => {
+  it('carries the attestation key and proof without using client-supplied liveness time', async () => {
+    const attestationKey = {
+      version: 1n,
+      publicKey: new Uint8Array(48).fill(2),
+      proofOfPossession: new Uint8Array(96).fill(3)
+    };
+    const txn = await buildValidatorRegistrationTXN(withValidator({ attestationKey }), OPTIONS);
+    expect(txn.validator?.attestationKey).toMatchObject(attestationKey);
+    const decoded = fromBinary(ValidatorRegistrationSchema, toBinary(ValidatorRegistrationSchema, txn));
+    expect(decoded.validator?.attestationKey).toMatchObject(attestationKey);
+    expect(decoded.validator?.lastHeartbeatTimeSeconds).toBe(0n);
+    attestationKey.publicKey.fill(9);
+    expect(txn.validator?.attestationKey?.publicKey[0]).toBe(2);
+  });
+
+  it.each([
+    { version: 1, publicKey: new Uint8Array(47), proofOfPossession: new Uint8Array(96) },
+    { version: 1, publicKey: new Uint8Array(48), proofOfPossession: new Uint8Array(95) },
+    { version: -1, publicKey: new Uint8Array(48), proofOfPossession: new Uint8Array(96) }
+  ])('rejects malformed attestation key material %#', async attestationKey => {
+    await expect(buildValidatorRegistrationTXN(withValidator({ attestationKey }), OPTIONS))
+      .rejects.toThrow(/validator.attestationKey/u);
+  });
+
   it('maps input fields onto an unsigned ValidatorRegistration', async () => {
     const txn = await buildValidatorRegistrationTXN(REG_INPUT, { ...OPTIONS, memo: 'hello' });
 
@@ -241,6 +266,48 @@ describe('ValidatorRegistration', () => {
     expect(() => attachGeneratedSignature(txn, '', node.publicKey)).toThrow(/generatedPrivateKey is required/);
     attachGeneratedSignature(txn, node.privateKey, node.publicKey);
     expect(txn.generatedSignature.length).toBe(64);
+  });
+
+  it.each([
+    ['a foreign chain', { chainId: new Uint8Array(32).fill(0x43) }, /chainId does not match/],
+    ['missing chain context', { chainId: new Uint8Array() }, /chainId does not match/],
+    ['a missing signature domain', { signatureDomain: new Uint8Array() }, /Invalid transaction signatureDomain/],
+    ['a wrong intended type', { intendedType: 0 }, /intendedType does not match/]
+  ])('refuses the operational co-signature for %s without mutation', async (_name, override, message) => {
+    const txn = await buildValidatorRegistrationTXN(REG_INPUT, OPTIONS);
+    signWithKey(txn, operator.privateKey, operator.publicKey);
+    Object.assign(txn.base!, override);
+    const before = toBinary(ValidatorRegistrationSchema, txn);
+    expect(() => attachGeneratedSignature(txn, node.privateKey, node.publicKey)).toThrow(message);
+    expect(toBinary(ValidatorRegistrationSchema, txn)).toEqual(before);
+    expect(txn.generatedSignature).toHaveLength(0);
+  });
+
+  it('refuses co-signing without a trusted pin and supports explicit trusted context', async () => {
+    const txn = await buildValidatorRegistrationTXN(REG_INPUT, OPTIONS);
+    signWithKey(txn, operator.privateKey, operator.publicKey);
+    configureTransactionContext(undefined);
+    try {
+      expect(() => attachGeneratedSignature(txn, node.privateKey, node.publicKey))
+        .toThrow('Trusted chainId is required');
+      expect(txn.generatedSignature).toHaveLength(0);
+      attachGeneratedSignature(txn, node.privateKey, node.publicKey, { chainId: new Uint8Array(32).fill(0x42) });
+      expect(ed25519.verify(txn.generatedSignature, txn.base!.hash!, rawEd25519PublicKey(node.publicKey))).toBe(true);
+    } finally {
+      configureTransactionContext({ chainId: new Uint8Array(32).fill(0x42) });
+    }
+  });
+
+  it('refuses a foreign registration hash concealed behind local context', async () => {
+    const txn = await buildValidatorRegistrationTXN(REG_INPUT, OPTIONS);
+    signWithKey(txn, operator.privateKey, operator.publicKey);
+    const foreign = fromBinary(ValidatorRegistrationSchema, toBinary(ValidatorRegistrationSchema, txn));
+    foreign.base!.chainId = new Uint8Array(32).fill(0x43);
+    signWithKey(foreign, operator.privateKey, operator.publicKey, { chainId: new Uint8Array(32).fill(0x43) });
+    txn.base!.hash = foreign.base!.hash;
+    expect(() => attachGeneratedSignature(txn, node.privateKey, node.publicKey))
+      .toThrow('base.hash does not match the signed registration body');
+    expect(txn.generatedSignature).toHaveLength(0);
   });
 
   it('sendValidatorRegistrationTXN rejects unsigned or partially signed txns', async () => {

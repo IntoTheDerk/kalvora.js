@@ -12,7 +12,7 @@
 import { existsSync, readFileSync, statSync } from 'fs';
 import { createRequire } from 'module';
 import { join, dirname } from 'path';
-import { fileURLToPath } from 'url';
+import { fileURLToPath, pathToFileURL } from 'url';
 import { runInNewContext } from 'vm';
 
 import { build as buildWithEsbuild } from 'esbuild';
@@ -21,6 +21,7 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const projectRoot = join(__dirname, '..');
 const distDir = join(projectRoot, 'dist');
+const esmUrl = pathToFileURL(join(distDir, 'index.mjs')).href;
 
 const colors = {
   reset: '\x1b[0m',
@@ -153,7 +154,7 @@ try {
 section('ESM Bundle Loads');
 
 try {
-  const esmModule = await import(join(distDir, 'index.mjs'));
+  const esmModule = await import(esmUrl);
 
   if (esmModule && typeof esmModule === 'object') {
     pass('ESM bundle loads via import()');
@@ -210,7 +211,7 @@ section('Export Parity');
 try {
   const require = createRequire(import.meta.url);
   const cjsModule = require(cjsPath);
-  const esmModule = await import(join(distDir, 'index.mjs'));
+  const esmModule = await import(esmUrl);
 
   const cjsKeys = Object.keys(cjsModule).sort();
   const esmKeys = Object.keys(esmModule).sort();

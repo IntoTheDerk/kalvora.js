@@ -81,8 +81,8 @@ export function acceptSmartContractEvent(event: SmartContractEventsResponse): Ac
 }
 
 /**
- * Next `search_start` after a page of events. Events are oldest-first and
- * pruned after about three days.
+ * Next timestamp filter after a batch of events. This is not a cursor and
+ * does not guarantee complete pagination. Events are pruned after about three days.
  */
 export function nextSmartContractEventSearchStart(
   events: readonly { timestamp?: Date }[]

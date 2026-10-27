@@ -48,7 +48,7 @@ or any signer you write.
 | | |
 |---|---|
 | **Wallets** | BIP-39 mnemonics, HD derivation (standard SLIP-0010 for Ed25519, Kalvora's own scheme for Ed448), addresses and public key identifiers. Available on its own as `kalvora.js/wallet`, with no network code. |
-| **Transactions** | Typed `build → sign → send` for every protocol transaction type: coin transfers, minting, contracts, items (NFT/SBT), governance proposals and votes, allowances, delegated voting, compliance, quash/revoke, expense ratios, smart contracts and validator operations. |
+| **Transactions** | Typed `build → sign → send` for every protocol transaction type: coin transfers, minting, contracts, items (NFT/SBT), governance proposals and votes, allowances, delegated voting, compliance, revoke, expense ratios, smart contracts and validator operations. |
 | **Queries** | `KalvoraQueryClient` for every client-facing read RPC (balances, nonces, contracts, fees, supply, blocks, proposals, smart-contract events), plus validator and guardian clients. Amounts are `bigint`s; failures are structured `KalvoraRpcError`s. |
 | **Workflows** | `KalvoraClient.submitAndWait`, offline and deterministic building, external signers, wallet adapters (injected provider, deep links, WalletConnect v2). |
 | **Use cases** | Staking, validator bootstrapping, DEX pools and swaps, the Kalvora ↔ Solana bridge, and an indexer-backed smart swap. |
@@ -69,9 +69,14 @@ bridge helpers use the optional dependencies `@solana/web3.js` and
 Create a wallet, check its balance, and send a transfer that waits for block
 inclusion:
 
+Obtain the target network's 32-byte chain ID from its operator through a
+trusted channel. Configure it before building or signing; the SDK has no
+default chain identity and does not learn one from RPC responses.
+
 ```typescript
 import {
   KalvoraClient,
+  configureTransactionContext,
   createWallet,
   generateMnemonicPhrase,
   createCoinTXN,
@@ -79,6 +84,8 @@ import {
   KEY_TYPE,
   KALVORA_NATIVE_TOKEN
 } from 'kalvora.js';
+
+configureTransactionContext({ chainId: operatorSuppliedHex });
 
 // 1. Wallet: standard Kalvora address (base58 of the raw public key)
 const wallet = await createWallet({
@@ -106,8 +113,16 @@ console.log(result.success ? `included in block ${result.blockHeight}` : result.
 wallet.secureClear(); // wipe key material when you are done
 ```
 
-`submitAndWait` resolves once the transaction is in a block; check
-`result.success`, because inclusion does not mean the transaction succeeded.
+`submitAndWait` resolves when a block contains a matching processing receipt
+with an explicit status. Check `result.success` to determine execution success.
+Verify the block's finality evidence separately before treating it as confirmed.
+
+**Clean-genesis migration:** all signers now require the pinned chain ID,
+signature domain, and concrete transaction type before signing. Rebuild and
+re-sign old transactions; Quash and delayed-key fields are retired, and
+smart-contract spending requires explicit per-token allowances. See
+[signing and offline/multisig workflows](./src/sign/README.md) and
+[smart-contract allowances](./src/smart-contracts/README.md).
 
 ## Wallets and keys
 

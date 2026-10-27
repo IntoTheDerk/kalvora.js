@@ -1,5 +1,25 @@
 # Smart Contracts
 
+Execute and instantiate options accept `allowances`, a signed spending budget
+for each token across the entire nested execution. Omitted lists and unlisted
+tokens authorize zero caller-wallet outflow. Amounts are raw token parts,
+including caller-paid Coin contract fees; root base/gas and interface fees have
+their separate signed caps. Supply one entry per token:
+
+```typescript
+const options = {
+  allowances: [
+    { contractId: tokenId, allowedAmount: '1000' },
+    { contractId: feeTokenId, allowedAmount: 'unlimited' }
+  ]
+};
+```
+
+Only the exact lowercase string `'unlimited'` permits uncapped spending of the
+named token. The retired Boolean `unlimited` field is rejected. Maximum uint256
+amounts remain finite budgets. The same options pass through staking, DEX,
+bootstrapping, and bridge helpers.
+
 Helpers for deploying, instantiating, and executing Kalvora smart contracts.
 
 The public API follows the same transaction pattern used elsewhere in the SDK:

@@ -9,13 +9,13 @@
  * individual transaction modules only describe *their own* fields:
  *
  * ```typescript
- * export async function buildQuashTXN(input, options) {
+ * export async function buildRevokeTXN(input, options) {
  *   return buildStandardTransaction({
- *     operation: 'buildQuashTXN',
- *     schema: QuashTXNSchema,
+ *     operation: 'buildRevokeTXN',
+ *     schema: RevokeTXNSchema,
  *     publicKeyId: input.publicKey,
  *     contractId: input.contractId,
- *     fields: { contractId: input.contractId, txnHash: parseHash32(input.txnHash, 'txnHash') },
+ *     fields: { contractId: input.contractId, amount: input.amount, fromAddress: parseAddress(input.fromAddress) },
  *     options
  *   });
  * }
@@ -114,7 +114,7 @@ export interface StandardTXNOptions {
 /**
  * Parameters for {@link buildStandardTransaction}.
  *
- * @typeParam Desc - protobuf-es message descriptor (e.g. `QuashTXNSchema`)
+ * @typeParam Desc - protobuf-es message descriptor (e.g. `RevokeTXNSchema`)
  */
 export interface BuildStandardTransactionParams<Desc extends DescMessage> {
   /** Name of the public builder, used in logs and error messages. */
@@ -361,7 +361,7 @@ export async function buildStandardTransaction<Desc extends DescMessage>(
     ...(options.memo !== undefined ? { memo: options.memo } : {}),
     ...(options.timestamp !== undefined ? { timestamp: options.timestamp } : {}),
     ...(feeAmountParts !== undefined ? { feeAmountParts } : {})
-  });
+  }, schema.typeName);
   if (options.safeSend !== undefined) {
     base.safeSend = options.safeSend;
   }

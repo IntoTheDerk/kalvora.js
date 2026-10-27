@@ -10,6 +10,7 @@ import type { BaseTXN } from '../../../proto/generated/txn_pb.js';
 import { getNonce as fetchNonce } from '../../api/handler/nonce/service.js';
 import { generateAddressFromPublicKey, getPublicKeyBytes } from '../../shared/crypto/address-utils.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
+import { transactionContextFields } from '../../sign/context.js';
 import type { GRPCConfig } from '../../types/index.js';
 
 /**
@@ -23,7 +24,8 @@ export function buildStandardBaseTXN(
     nonce: bigint;
     memo?: string;
     timestamp?: Date;
-  }
+  },
+  transactionTypeName: string
 ): BaseTXN {
   const { publicKeyId, nonce, memo } = params;
   const finalFeeId = params.feeId || KALVORA_NATIVE_TOKEN;
@@ -54,6 +56,7 @@ export function buildStandardBaseTXN(
   });
 
   const base: Record<string, unknown> = {
+    ...transactionContextFields(transactionTypeName),
     publicKey,
     timestamp,
     feeAmount: String(finalFeeAmount),

@@ -15,7 +15,13 @@ import {
   type TextGovernanceProposalInput
 } from '../transaction.js';
 
+import signedContextVector from './fixtures/text-proposal-signed-context-v1.json';
 import vector from './fixtures/text-proposal-v1.json';
+
+// Preserve the original pre-cutover vector. The new hardcoded fixture adds
+// BaseTXN tags 16–18 using the synthetic trusted 0x42 × 32 pin from
+// vitest.setup.ts. It does not claim cross-language or live-node validation.
+const expectedProtobufHex = signedContextVector.expectedProtobufHex;
 
 const input = vector.input as TextGovernanceProposalInput;
 const constructionContext =
@@ -42,7 +48,7 @@ function hex(bytes: Uint8Array): string {
 }
 
 describe('buildTextGovernanceProposalTXN', () => {
-  it('maps the v1 text-proposal test vector fields to stable unsigned protobuf bytes', async () => {
+  it('maps the text-proposal fields to stable unsigned V1-context protobuf bytes', async () => {
     const proposal = await buildTextGovernanceProposalTXN(
       input,
       vector.publicKey,
@@ -50,7 +56,10 @@ describe('buildTextGovernanceProposalTXN', () => {
     );
     const bytes = toBinary(GovernanceProposalSchema, proposal);
 
-    expect(hex(bytes)).toBe(vector.expectedProtobufHex);
+    expect(hex(bytes)).toBe(expectedProtobufHex);
+    expect(hex(proposal.base!.chainId)).toBe(signedContextVector.chainIdHex);
+    expect(new TextDecoder().decode(proposal.base!.signatureDomain)).toBe(signedContextVector.signatureDomain);
+    expect(proposal.base?.intendedType).toBe(TRANSACTION_TYPE.PROPOSAL_TYPE);
     expect(proposal.contractId).toBe(input.contractId);
     expect(proposal.title).toBe(input.title);
     expect(proposal.synopsis).toBe(input.synopsis);
@@ -62,6 +71,14 @@ describe('buildTextGovernanceProposalTXN', () => {
     expect(proposal.endTimestamp).toBeUndefined();
     expect(proposal.base?.signature).toBeUndefined();
     expect(proposal.base?.hash).toBeUndefined();
+  });
+
+  it('preserves the historical pre-cutover fixture as an unbound wire reference', () => {
+    const legacy = fromBinary(GovernanceProposalSchema, Buffer.from(vector.expectedProtobufHex, 'hex'));
+    expect(legacy.base?.chainId).toHaveLength(0);
+    expect(legacy.base?.signatureDomain).toHaveLength(0);
+    expect(legacy.base?.intendedType).toBe(TRANSACTION_TYPE.UKNOWN_TYPE);
+    expect(hex(toBinary(GovernanceProposalSchema, legacy))).toBe(vector.expectedProtobufHex);
   });
 
   it('round-trips field 10 while keeping every executable effect empty', async () => {
@@ -148,14 +165,14 @@ describe('buildTextGovernanceProposalTXN', () => {
     it.each([
       ['omitted', undefined],
       ['PROPOSAL_TYPE_NONE', ProposalType.NONE]
-    ])('keeps the v1 golden bytes unchanged when %s', async (_label, proposalType) => {
+    ])('keeps the V1-context golden bytes unchanged when %s', async (_label, proposalType) => {
       const proposal = await buildTextGovernanceProposalTXN(
         { ...input, ...(proposalType !== undefined ? { proposalType } : {}) },
         vector.publicKey,
         deterministicOptions
       );
       expect(proposal.proposalType).toBe(ProposalType.NONE);
-      expect(hex(toBinary(GovernanceProposalSchema, proposal))).toBe(vector.expectedProtobufHex);
+      expect(hex(toBinary(GovernanceProposalSchema, proposal))).toBe(expectedProtobufHex);
     });
 
     it.each([
@@ -170,7 +187,7 @@ describe('buildTextGovernanceProposalTXN', () => {
         deterministicOptions
       );
       const bytes = toBinary(GovernanceProposalSchema, proposal);
-      expect(hex(bytes)).toBe(`${vector.expectedProtobufHex}${suffix}`);
+      expect(hex(bytes)).toBe(`${expectedProtobufHex}${suffix}`);
       expect(fromBinary(GovernanceProposalSchema, bytes).proposalType).toBe(proposalType);
     });
 

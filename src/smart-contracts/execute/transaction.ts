@@ -14,6 +14,7 @@ import type { SmartContractExecuteTXN } from '../../../proto/generated/txn_pb.js
 import { validateKeyPair } from '../../contract/shared/utils.js';
 import { signWithKey } from '../../sign/finalize.js';
 import type { GRPCConfig } from '../../types/index.js';
+import { buildSmartContractAllowances, type SmartContractAllowanceInput } from '../shared/allowances.js';
 import {
   buildSmartContractBaseTXN,
   calculateSmartContractFee,
@@ -45,6 +46,8 @@ export { ParamType, type ParameterType };
  * Options for building an unsigned SmartContractExecuteTXN.
  */
 export interface BuildSmartContractExecuteOptions extends SmartContractBaseTXNOptions {
+  /** Caller-wallet outflow budgets. Omitted or unlisted tokens have zero allowance. */
+  allowances?: readonly SmartContractAllowanceInput[];
   /** Gas fee in USD */
   gasFeeInUsd?: number;
 }
@@ -95,6 +98,7 @@ export async function buildSmartContractExecuteTXN(
   if (!Array.isArray(parameters)) {
     throw new Error('parameters must be an array');
   }
+  const allowances = buildSmartContractAllowances(options.allowances);
 
   const { base, grpcConfig, effectiveFeeId } = await buildSmartContractBaseTXN(
     publicKeyBase58Identifier,
@@ -107,7 +111,8 @@ export async function buildSmartContractExecuteTXN(
     smartContractName,
     function: functionName,
     instance,
-    parameters: buildSmartContractParameters(parameters)
+    parameters: buildSmartContractParameters(parameters),
+    allowances
   });
 
   await calculateSmartContractFee(executeTxn, options, grpcConfig, effectiveFeeId);

@@ -268,7 +268,10 @@ export interface WaitForTransactionOptions {
   signal?: AbortSignal;
 }
 
-/** Result of {@link KalvoraQueryClient.waitForTransaction}. */
+/**
+ * Processing receipt returned by {@link KalvoraQueryClient.waitForTransaction}.
+ * The historical type name does not imply that finality evidence was verified.
+ */
 export interface ConfirmedTransaction extends TransactionResult {
   /** Height of the block that contains the transaction. */
   blockHeight: bigint;
@@ -648,8 +651,9 @@ export class KalvoraQueryClient {
   }
 
   /**
-   * Wait until a transaction is included in a block, scanning forward from
+   * Wait until a transaction has an explicit processing receipt in a block, scanning forward from
    * `fromHeight`.
+   * Verify the block's finality evidence separately before treating it as confirmed.
    *
    * @param txnHash - Hex transaction hash (as returned by `send*` functions)
    * @throws Error on timeout or abort
@@ -722,7 +726,9 @@ export class KalvoraQueryClient {
   // --------------------------------------------------------------------------
 
   /**
-   * Events emitted by a smart contract since a point in time.
+   * Events emitted by a smart contract since a point in time, using the
+   * legacy all-or-error query (at most 256 matching events). This helper does
+   * not use the new authenticated cursor paging protocol.
    *
    * @param smartContractId - Smart contract name
    * @param since - Only return events at or after this time (default: all)
@@ -755,7 +761,9 @@ export class KalvoraQueryClient {
   // --------------------------------------------------------------------------
 
   /**
-   * Read a raw validator database record.
+   * Read a raw, uncertified diagnostic validator database record. This is
+   * not certified history or proof of committed state. The raw RPC exposes
+   * the accompanying `diagnosticUnverified` flag.
    *
    * Values are validator-internal encodings that differ per table (plain
    * decimal strings, binary protobuf, or protobuf text format). Prefer the

@@ -9,6 +9,13 @@ package kal_validator;
 option optimize_for = SPEED;
 
 service ValidatorService{
+    // Attestation: individually authenticated votes, aggregate certificates,
+    // and proposal metadata. Block bodies use the bounded block fetch RPC.
+    rpc AttestationExchange(ConsensusExchange) returns (ConsensusExchange);
+    rpc ConsensusBlock(ConsensusBlockRequest) returns (Block);
+    // Read-only, bounded recovery proof for a validator that missed a commit.
+    // The caller verifies the returned quorum certificate against its own set.
+    rpc ConsensusFinality(ConsensusFinalityRequest) returns (QuorumCertificate);
     //streams
     rpc StreamFailedBlock(stream DataChunk) returns (google.protobuf.Empty);
     rpc StreamBroadcast(stream DataChunk) returns (google.protobuf.Empty);
@@ -32,7 +39,6 @@ service ValidatorService{
     rpc ValidatorHeartbeat(kal_txn.ValidatorHeartbeat) returns (google.protobuf.Empty);
     rpc ValidatorDelegatedVoting(kal_txn.DelegatedTXN) returns (google.protobuf.Empty);
     rpc IndexerVoting(IndexerVotingRequest) returns (IndexerVotingResponse);
-    rpc ValidatorQuash(kal_txn.QuashTXN) returns (google.protobuf.Empty);
     rpc ValidatorRevoke(kal_txn.RevokeTXN) returns (google.protobuf.Empty);
     rpc ValidatorCompliance(kal_txn.ComplianceTXN) returns (google.protobuf.Empty);
     rpc ValidatorBurnSBT(kal_txn.BurnSBTTXN) returns (google.protobuf.Empty);
@@ -42,6 +48,8 @@ service ValidatorService{
     rpc StreamRequestSlashed(stream SlashedRequest) returns (stream DataChunk);
     rpc Balance(BalanceRequest) returns (BalanceResponse);
     rpc Gossip(TXNGossip) returns (google.protobuf.Empty);
+    // V2 receipts identify only children durably admitted by this receiver.
+    rpc GossipV2(GossipV2Request) returns (GossipV2Receipt);
     rpc ValidatorAllowance(kal_txn.AllowanceTXN) returns (google.protobuf.Empty);
     rpc ValidatorProposalCancel(kal_txn.ProposalCancelTXN) returns (google.protobuf.Empty);
     
@@ -80,6 +88,124 @@ message ValidatorBalance
 {
     kal_txn.PublicKey public_key = 1;            //Original Public Key
     string total_balance = 2;                     //Total Balance of all qualified coins
+    kal_txn.AttestationKey attestation_key = 3;
+    bytes operational_public_key = 4;
+    string endpoint = 5;
+    uint64 last_heartbeat_time_seconds = 6;
+}
+
+// A signer attests to its own durable nonreceipt in the closed, ten-minute-
+// aligned two-hour window ending at cutoff_seconds. This is not a proof that
+// no heartbeat existed anywhere on the network.
+message ValidatorAbsenceStatement {
+    uint32 protocol_version = 1;
+    bytes chain_id = 2;
+    uint64 anchor_height = 3;
+    bytes anchor_hash = 4;
+    bytes anchor_validator_set_hash = 5;
+    bytes target_operational_key = 6;
+    uint64 target_last_heartbeat_seconds = 7;
+    uint64 cutoff_seconds = 8;
+}
+message ValidatorAbsenceVote {
+    ValidatorAbsenceStatement statement = 1;
+    uint32 validator_index = 2;
+    bytes signature = 3;
+}
+message ValidatorAbsenceCertificate {
+    ValidatorAbsenceStatement statement = 1;
+    bytes signer_bitmap = 2;
+    bytes signature = 3;
+}
+message ValidatorHeartbeatWitnessEpoch {
+    uint64 epoch_start_seconds = 1;
+    uint64 first_receipt_seconds = 2;
+    uint64 last_receipt_seconds = 3;
+}
+message ValidatorHeartbeatWitnessJournal {
+    bytes validator_identity = 1;
+    repeated ValidatorHeartbeatWitnessEpoch epochs = 2;
+}
+message ValidatorAbsenceSigningJournal {
+    bytes chain_id = 1;
+    bytes target_operational_key = 2;
+    uint64 cutoff_seconds = 3;
+    repeated ValidatorAbsenceVote intents = 4;
+}
+message ValidatorAbsenceClockJournal {
+    uint64 highwater_seconds = 1;
+}
+
+// Consensus uses raw bytes throughout. A height is one validator-set epoch:
+// the finalized parent's archive determines every key and weight at that height.
+enum ConsensusPhase {
+    CONSENSUS_PHASE_UNSPECIFIED = 0;
+    PREVOTE = 1;
+    PRECOMMIT = 2;
+}
+message ConsensusVote {
+    uint32 protocol_version = 1;
+    bytes chain_id = 2;
+    uint64 height = 3;
+    uint64 round = 4;
+    ConsensusPhase phase = 5;
+    bytes validator_set_hash = 6;
+    bytes block_hash = 7; // empty denotes nil
+    uint32 validator_index = 8;
+    bytes signature = 9;
+}
+message QuorumCertificate {
+    uint32 protocol_version = 1;
+    bytes chain_id = 2;
+    uint64 height = 3;
+    uint64 round = 4;
+    ConsensusPhase phase = 5;
+    bytes validator_set_hash = 6;
+    bytes block_hash = 7;
+    bytes signer_bitmap = 8; // little-endian bits, canonical sorted validator set
+    bytes signature = 9;
+}
+message ConsensusProposal {
+    uint32 protocol_version = 1;
+    bytes chain_id = 2;
+    uint64 height = 3;
+    uint64 round = 4;
+    bytes validator_set_hash = 5;
+    bytes block_hash = 6;
+    uint32 proposer_index = 7;
+    optional QuorumCertificate valid_certificate = 8;
+    bytes signature = 9; // proposer BLS signature over canonical proposal context
+}
+message ConsensusExchange {
+    repeated ConsensusVote votes = 1;
+    repeated QuorumCertificate certificates = 2;
+    repeated ConsensusProposal proposals = 3;
+    uint64 height = 4;
+    bytes validator_set_hash = 5;
+    repeated bytes known_ids = 6;
+    // The complete envelope (including known_ids and every nested object) is
+    // signed with the sender's committed attestation key. Responses echo the
+    // request challenge and use a separate signature domain.
+    uint32 sender_validator_index = 7;
+    uint32 recipient_validator_index = 8;
+    uint64 sender_boot_epoch = 9;
+    uint64 sender_sequence = 10;
+    bytes request_challenge = 11;
+    bytes signature = 12;
+    repeated ValidatorAbsenceVote absence_votes = 13;
+    repeated ValidatorAbsenceCertificate absence_certificates = 14;
+}
+message ConsensusBlockRequest {
+    bytes block_hash = 1;
+}
+message ConsensusFinalityRequest {
+    uint64 height = 1;
+}
+// Finalized evidence is transported alongside synced blocks, never inferred
+// from a peer's assertion that a block has been confirmed.
+message FinalizedConsensusBlock {
+    Block block = 1;
+    QuorumCertificate certificate = 2;
 }
 message BlockAttestationResponse
 {
@@ -146,6 +272,7 @@ message BlockSync{
     uint64 amount = 2;
     optional bytes signature = 3;
     kal_txn.PublicKey public_key = 4; 
+    bytes challenge = 5; // fresh 32-byte request challenge
 }
 message BlockHeader{
 	optional uint64 version = 1;
@@ -165,6 +292,7 @@ message Block{
 	optional bytes signature = 4;
     kal_txn.PublicKey public_key = 5; 
     repeated SlashedValidator slashed_validators = 6;
+    repeated ValidatorAbsenceCertificate validator_expiry_certificates = 7;
 }
 message SlashedValidator
 {
@@ -186,6 +314,35 @@ message BlockBatch{
     bool last_block = 2;
     optional bytes signature = 3;
     kal_txn.PublicKey public_key = 4; 
+    repeated QuorumCertificate finality_certificates = 5;
+    bytes request_challenge = 6;
+    bytes requested_parent_hash = 7;
+    uint64 committed_tip_height = 8;
+    bytes committed_tip_hash = 9;
+}
+
+message ConsensusJournal {
+    bytes chain_id = 1;
+    uint64 height = 2;
+    bytes core_snapshot = 3;
+    repeated ConsensusProposal signed_proposals = 4;
+    ConsensusExchange evidence = 5;
+}
+
+// Local crash checkpoint for append-only absence evidence in signing.journal.
+// This is never sent over the network or included in a consensus signature.
+message ConsensusJournalAppendIndex {
+    bytes base_digest = 1;
+    uint64 base_size = 2;
+    uint64 committed_size = 3;
+    bytes pending_base_digest = 4;
+    uint64 pending_base_size = 5;
+    bool pending = 6;
+    uint32 version = 7;
+    bytes checksum = 8;
+    // Hash chain of complete appended evidence fields, rooted at base_digest.
+    // Startup checks this before accepting the committed append prefix.
+    bytes committed_digest = 9;
 }
 
 message NFT{
@@ -271,6 +428,8 @@ message Proposal{
     string pre_governance_fee = 23;
     string regular_governance_fee = 24;
     PRE_GOVERNANCE_OUTCOME pre_governance_outcome = 25;
+    // Refund destination for any unspent proposal fee escrow on voted removal.
+    optional bytes escrow_payer_wallet = 26;
 }
 message ProposalWalletRecieve{
     kal_txn.BaseTXN base = 1;
@@ -294,6 +453,7 @@ message CurrencyRate{
 message ExpenseTracker{
     int32 day = 1;
     int32 month = 2;
+    int32 year = 3; // Full UTC Gregorian year of the last processed expense
 }
 message IndexerVotingRequest{
     bytes proposal_id = 1;
@@ -354,15 +514,10 @@ message Delegatees{
 }
 message DelegateWallets{
     repeated bytes wallets = 1;
-}
-message QuashLedger{
-    repeated bytes txn_ids = 1;
+    // Aligned with wallets; the delegator's priority on the traversed edge.
+    repeated uint32 priorities = 2;
 }
 //key = proposal_id
-message QuashLookup{
-    repeated kal_txn.PublicKey quash_keys = 1; //keys that have already sumbitted quash 
-    uint32 keys_required = 2;       //how many keys needed to fullfill quash
-}
 message ComplianceData
 {
     uint32 level = 1;
@@ -429,6 +584,25 @@ message TXNGossip{
     repeated TXN txns = 1;
     kal_txn.PublicKey public_key = 2;
     optional bytes signature = 3;
+}
+message GossipV2Request {
+    uint32 version = 1;
+    bytes chain_id = 2;
+    bytes challenge = 3;
+    repeated TXN txns = 4;
+    kal_txn.PublicKey sender_public_key = 5;
+    bytes batch_digest = 6;
+    bytes signature = 7;
+}
+message GossipV2Receipt {
+    uint32 version = 1;
+    bytes chain_id = 2;
+    bytes challenge = 3;
+    bytes batch_digest = 4;
+    kal_txn.PublicKey sender_public_key = 5;
+    kal_txn.PublicKey receiver_public_key = 6;
+    repeated uint32 accepted_indices = 7;
+    bytes signature = 8;
 }
 
 // Checkpoint Sync Messages

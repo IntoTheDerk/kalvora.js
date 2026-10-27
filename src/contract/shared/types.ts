@@ -65,8 +65,6 @@ export interface CreateContractOptions {
   updateContractFees?: boolean;
   /** Whether to update expense ratio */
   updateExpenseRatio?: boolean;
-  /** Optional quash threshold */
-  quashThreshold?: number;
   /** Optional token compliance settings */
   tokenCompliance?: TokenCompliance[];
   /** Whether KYC status is required */
@@ -120,8 +118,6 @@ export interface UpdateContractOptions {
   kycStatus?: boolean;
   /** Optional immutable KYC status */
   immutableKycStatus?: boolean;
-  /** Optional quash threshold */
-  quashThreshold?: number;
   /** Optional fee ID (defaults to `KALVORA_NATIVE_TOKEN`) */
   feeId?: string;
   /** Optional fee amount in parts */

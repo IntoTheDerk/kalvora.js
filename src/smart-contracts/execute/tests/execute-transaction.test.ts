@@ -20,6 +20,7 @@ vi.mock('../../../shared/fee-calculators/universal-fee-calculator.js', () => ({
   }
 }));
 
+import { KALVORA_NATIVE_TOKEN } from '../../../shared/network/constants.js';
 import { ED25519_TEST_KEYS } from '../../../test-utils/keys.test.js';
 import {
   buildSmartContractExecuteTXN,
@@ -44,7 +45,8 @@ describe('buildSmartContractExecuteTXN', () => {
       {
         nonce: '11',
         feeAmountParts: '1111',
-        memo: 'execute hello'
+        memo: 'execute hello',
+        allowances: [{ contractId: KALVORA_NATIVE_TOKEN, allowedAmount: '123' }]
       }
     );
 
@@ -52,6 +54,7 @@ describe('buildSmartContractExecuteTXN', () => {
     expect(txn.smartContractName).toBe('hello_contract');
     expect(txn.instance).toBe(3);
     expect(txn.function).toBe('execute');
+    expect(txn.allowances).toMatchObject([{ contractId: KALVORA_NATIVE_TOKEN, allowedAmount: '123' }]);
     expect(txn.parameters).toHaveLength(2);
     expect(txn.parameters[0]?.type).toBe(ParamType.STRING);
     expect(decoder.decode(txn.parameters[0]?.value)).toBe('owner');

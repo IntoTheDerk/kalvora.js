@@ -246,6 +246,12 @@ import { UniversalFeeCalculator } from '<hosted location>';
 
 ### Contract Fees
 
+Percentage contract fees use the full transfer amount, both token rates, and
+their exact denominations before rounding to payment-token parts. A positive
+percentage on a positive transfer costs at least one raw payment-token part.
+Each transaction rounds separately, so splitting transfers can increase the
+total fee. `contractFeeParts` sets the signed total cap when quoting manually.
+
 ```typescript
 // Contract fees are automatically fetched from the network
 // and applied based on the token being used
