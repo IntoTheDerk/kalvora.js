@@ -69,9 +69,10 @@ bridge helpers use the optional dependencies `@solana/web3.js` and
 Create a wallet, check its balance, and send a transfer that waits for block
 inclusion:
 
-Obtain the target network's 32-byte chain ID from its operator through a
-trusted channel. Configure it before building or signing; the SDK has no
-default chain identity and does not learn one from RPC responses.
+Configure the exact target chain ID before building or signing: `kal_proto`
+for Stablenet and `kal_main` for Mainnet. These are wire identifiers, not
+labels to hash or pad. The SDK has no default and does not learn the target
+ID from an incoming transaction.
 
 ```typescript
 import {
@@ -85,7 +86,7 @@ import {
   KALVORA_NATIVE_TOKEN
 } from 'kalvora.js';
 
-configureTransactionContext({ chainId: operatorSuppliedHex });
+configureTransactionContext({ chainId: ifcConfiguredChainId });
 
 // 1. Wallet: standard Kalvora address (base58 of the raw public key)
 const wallet = await createWallet({

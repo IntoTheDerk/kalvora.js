@@ -2,7 +2,7 @@ import { TRANSACTION_TYPE, type BaseTXN } from '../../proto/generated/txn_pb.js'
 
 /** Trusted network identity, supplied by the operator through a trusted channel. */
 export interface TransactionContext {
-  /** Exactly 32 raw bytes or 64 hexadecimal characters (optional 0x prefix). */
+  /** Exact named chain ID or opaque configured wire bytes; explicit legacy hex pins remain supported. */
   chainId: Uint8Array | string;
 }
 
@@ -19,12 +19,13 @@ export function configureTransactionContext(context: TransactionContext | undefi
 }
 
 function parseChainId(value: TransactionContext['chainId']): Uint8Array {
+  if (value === 'kal_main' || value === 'kal_proto') return new TextEncoder().encode(value);
   if (typeof value === 'string' && /^(?:0x)?[0-9a-fA-F]{64}$/u.test(value)) {
     const hex = value.replace(/^0x/u, '');
     return Uint8Array.from({ length: 32 }, (_, i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16));
   }
-  if (value instanceof Uint8Array && value.length === 32) return new Uint8Array(value);
-  throw new Error('chainId must be exactly 32 raw bytes or a 32-byte hex string');
+  if (value instanceof Uint8Array && value.length > 0 && value.length <= 64) return new Uint8Array(value);
+  throw new Error('chainId must be an exact kal_main/kal_proto identifier, bounded raw bytes, or an explicit legacy 32-byte hex pin');
 }
 
 const TYPES: Readonly<Record<string, TRANSACTION_TYPE>> = {

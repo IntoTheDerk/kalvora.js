@@ -41,8 +41,8 @@ describe('trusted V1 transaction context', () => {
     expect(mint().base?.chainId).toEqual(pin);
   });
 
-  it.each(['', 'kalvora:protonet', 'aa'.repeat(31), 'gg'.repeat(32), new Uint8Array(33)])('rejects an invalid chain identity %s', chainId => {
-    expect(() => configureTransactionContext({ chainId })).toThrow('chainId must be exactly 32');
+  it.each(['', 'kalvora:protonet', 'aa'.repeat(31), 'gg'.repeat(32), new Uint8Array(65)])('rejects an invalid chain identity %s', chainId => {
+    expect(() => configureTransactionContext({ chainId })).toThrow('chainId must be');
   });
 
   it.each([
@@ -161,4 +161,18 @@ describe('trusted V1 transaction context', () => {
     await expect(signAndFinalize(coin, { publicKey: alice.publicKey, sign: async () => new Uint8Array(64) })).rejects.toThrow('Use signCoinTXN');
     expect(() => getSponsorSigningBytes(coin)).toThrow('cannot use base.feePayer');
   });
+});
+
+
+it.each(['kal_main', 'kal_proto'])('preserves literal wire identity %s without padding or hashing', chainId => {
+  configureTransactionContext({ chainId });
+  const expected = new TextEncoder().encode(chainId);
+  const fields = transactionContextFields('MintTXN');
+  expect(fields.chainId).toEqual(expected);
+  expect(fields.chainId.length).toBe(chainId.length);
+  fields.chainId[0] ^= 1;
+  expect(transactionContextFields('MintTXN').chainId).toEqual(expected);
+  const tx = mint();
+  expect(() => assertTransactionContext(tx, { chainId })).not.toThrow();
+  expect(() => assertTransactionContext(tx, { chainId: chainId === 'kal_main' ? 'kal_proto' : 'kal_main' })).toThrow('trusted target chain');
 });

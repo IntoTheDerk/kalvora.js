@@ -6,11 +6,13 @@ helper. Obtain its ID from the network operator through a trusted channel:
 ```typescript
 import { configureTransactionContext } from 'kalvora.js';
 
-configureTransactionContext({ chainId: operatorSuppliedHex });
+configureTransactionContext({ chainId: ifcConfiguredChainId });
 ```
 
-`chainId` must contain 64 hexadecimal characters (an optional `0x` prefix is
-accepted), or exactly 32 raw bytes. There is no default chain identity, and
+`chainId` accepts the exact `kal_main` / `kal_proto` identifiers or bounded
+explicit wire bytes (1–64 bytes). Names are UTF-8 encoded without padding or
+hashing. Explicit legacy 32-byte hex pins remain supported for older callers.
+There is no default chain identity, and
 the SDK does not adopt one from an RPC response or an incoming transaction.
 Endpoint configuration alone does not configure the chain ID.
 
