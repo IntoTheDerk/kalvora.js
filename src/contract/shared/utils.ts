@@ -2,6 +2,7 @@
  * Shared utilities for contract operations
  */
 
+import { GOVERNANCE_TYPE, type Governance, type RestrictedKey } from '../../../proto/generated/txn_pb.js';
 import { generateAddressFromPublicKey } from '../../shared/crypto/address-utils.js';
 import { toSmallestUnits } from '../../shared/utils/unified-amount-conversion.js';
 import { isValidContractId } from '../../shared/utils/validation.js';
@@ -12,6 +13,26 @@ import type { AmountInput } from '../../types/index.js';
  */
 const TOKEN_SYMBOL = /^[A-Z0-9]{3,20}$/u;
 const TOKEN_NAME = /^[A-Za-z0-9 ]{3,200}$/u;
+
+/** Reject options removed at clean genesis before protobuf creation drops them. */
+export function validateCurrentContractFields(options: {
+  restrictedKeys?: readonly RestrictedKey[];
+  governance?: Governance;
+}): void {
+  if ('quashThreshold' in options) {
+    throw new Error('quashThreshold is retired and must not be supplied');
+  }
+  for (const key of options.restrictedKeys ?? []) {
+    for (const field of ['timeDelay', 'global', 'quash']) {
+      if (field in key) {
+        throw new Error(`restrictedKeys.${field} is retired and must not be supplied`);
+      }
+    }
+  }
+  if (options.governance?.type === GOVERNANCE_TYPE.REMOVE) {
+    throw new Error('Governance REMOVE is disabled by the current network consensus policy');
+  }
+}
 
 export function validateCreateContractOptions(options: {
   contractId: string;
@@ -161,27 +182,27 @@ export function convertPercentToRegularQuorum(percent: number): number {
 
 /**
  * Converts a percentage value (with max 2 decimal precision) to threshold format.
- * Threshold uses 1000 = 100% (basis points × 10)
+ * Threshold uses 10000 = 100% (basis points).
  * 
  * @param percent - Percentage value (e.g., 20.5 for 20.5%)
- * @returns number - Threshold value (e.g., 20.5% = 205)
+ * @returns number - Threshold value (e.g., 20.5% = 2050)
  * 
  * @example
  * ```typescript
- * const threshold = convertPercentToThreshold(20.5); // Returns: 205
+ * const threshold = convertPercentToThreshold(20.5); // Returns: 2050
  * ```
  */
 export function convertPercentToThreshold(percent: number): number {
-  if (percent < 0 || percent > 100) {
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
     throw new Error('Percent must be between 0 and 100');
   }
-  // Round to 2 decimal places, then convert: 20.5% = 205 (1000 = 100%)
-  return Math.round(percent * 10);
+  return Math.round(percent * 100);
 }
 
 /**
  * Converts a percentage value (with max 2 decimal precision) to contract fee percentage format.
- * Used for: fee (when type is PERCENTAGE), burn, and validator fields.
+ * Used for the fee field when type is PERCENTAGE. The burn and validator
+ * fields take whole percentages directly, with a combined maximum of 100.
  * Contract fees use 100% = 1,000,000,000,000,000,000 (quintillion)
  * 
  * @param percent - Percentage value (e.g., 50.5 for 50.5%)

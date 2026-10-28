@@ -75,7 +75,6 @@ async function createContractExample(): Promise<void> {
     const USE_TOKEN_COMPLIANCE = true;
     const USE_MAX_SUPPLY_RELEASE = true;
     const USE_KYC = true;
-    const USE_QUASH_THRESHOLD = true;
 
     // Basic contract info
     const contractVersion = BigInt(1000000);
@@ -146,7 +145,7 @@ async function createContractExample(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.STAGED,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: true, // Allow multiple choice proposals
@@ -163,7 +162,7 @@ async function createContractExample(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.CYCLE,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: true, // Allow multiple choice proposals
@@ -181,7 +180,7 @@ async function createContractExample(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.STAGGERED,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: false, // Typically no multi-choice for staggered
@@ -195,7 +194,7 @@ async function createContractExample(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.ADAPTIVE,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: true // Allow multiple choice proposals
@@ -217,11 +216,9 @@ async function createContractExample(): Promise<void> {
         publicKey: create(PublicKeySchema, {
           single: restrictedKey1Bytes as Uint8Array<ArrayBuffer>
         }),
-        timeDelay: BigInt(86400), // 1 day delay
         global: true,
         createContractUpdateTXN: true,
         transfer: false,
-        quash: true,
         mint: true,
         vote: true,
         propose: true,
@@ -238,11 +235,9 @@ async function createContractExample(): Promise<void> {
         publicKey: create(PublicKeySchema, {
           single: restrictedKey2Bytes as Uint8Array<ArrayBuffer>
         }),
-        timeDelay: BigInt(0),
         global: false,
         createContractUpdateTXN: false,
         transfer: true,
-        quash: false,
         mint: false,
         vote: false,
         propose: false,
@@ -282,9 +277,9 @@ async function createContractExample(): Promise<void> {
       contractFees = create(ContractFeesSchema, {
         fee: feeValue,
         feeAddress: sanitizeAndDecodeAddress(TEST_WALLET_ADDRESSES.alice), // Use Alice's address for fee recipient
-        // burn and validator are always percentages (100% = 1000000000000000000)
-        burn: convertPercentToContractFeePercent(burnPercent),
-        validator: convertPercentToContractFeePercent(validatorPercent),
+        // burn and validator are whole percentages (100 = 100%)
+        burn: String(burnPercent),
+        validator: String(validatorPercent),
         allowedFeeInstrument: ['KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'],
         contractFeeType: CONTRACT_FEE_TYPE[CONTRACT_FEE_TYPE_SELECTION as keyof typeof CONTRACT_FEE_TYPE]
       });
@@ -441,7 +436,6 @@ async function createContractExample(): Promise<void> {
         kycStatus: true,
         immutableKycStatus: false 
       }),
-      ...(USE_QUASH_THRESHOLD && { quashThreshold: 3 }),
       updateContractFees: USE_CONTRACT_FEES,
       updateExpenseRatio: USE_EXPENSE_RATIO,
       grpcConfig: PROTONET_GRPC_CONFIG // Use test gRPC configuration
@@ -460,7 +454,6 @@ async function createContractExample(): Promise<void> {
     if (USE_TOKEN_COMPLIANCE) console.log('  ✓ Token Compliance');
     if (USE_MAX_SUPPLY_RELEASE) console.log('  ✓ Max Supply Release');
     if (USE_KYC) console.log('  ✓ KYC Status');
-    if (USE_QUASH_THRESHOLD) console.log('  ✓ Quash Threshold');
 
     const contract = await createContractTXN(options);
     
@@ -498,7 +491,6 @@ async function first(): Promise<void> {
     const USE_TOKEN_COMPLIANCE = false;
     const USE_MAX_SUPPLY_RELEASE = false;
     const USE_KYC = false;
-    const USE_QUASH_THRESHOLD = false;
 
     // Basic contract info
     const contractVersion = BigInt(1000000);
@@ -568,7 +560,7 @@ async function first(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.STAGED,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: true, // Allow multiple choice proposals
@@ -585,7 +577,7 @@ async function first(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.CYCLE,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: true, // Allow multiple choice proposals
@@ -603,7 +595,7 @@ async function first(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.STAGGERED,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: false, // Typically no multi-choice for staggered
@@ -617,7 +609,7 @@ async function first(): Promise<void> {
         governance = create(GovernanceSchema, {
           type: GOVERNANCE_TYPE.ADAPTIVE,
           regularQuorum: convertPercentToRegularQuorum(regularQuorumPercent), // 50.0% = 5000
-          threshold: convertPercentToThreshold(thresholdPercent), // 20.0% = 200
+          threshold: convertPercentToThreshold(thresholdPercent), // 0.25% = 25
           votingInstrument: [contractId], // Contract IDs allowed to vote
           allowedProposalInstrument: [contractId], // Contract IDs allowed to create proposals
           allowMulti: true // Allow multiple choice proposals
@@ -639,11 +631,9 @@ async function first(): Promise<void> {
         publicKey: create(PublicKeySchema, {
           single: restrictedKey1Bytes as Uint8Array<ArrayBuffer>
         }),
-        //timeDelay: BigInt(86400), // 1 day delay
         global: false,
         createContractUpdateTXN: true,
         transfer: true,
-        quash: false,
         mint: false,
         vote: true,
         propose: true,
@@ -683,9 +673,9 @@ async function first(): Promise<void> {
       contractFees = create(ContractFeesSchema, {
         fee: feeValue,
         feeAddress: sanitizeAndDecodeAddress(TEST_WALLET_ADDRESSES.alice), // Use Alice's address for fee recipient
-        // burn and validator are always percentages (100% = 1000000000000000000)
-        burn: convertPercentToContractFeePercent(burnPercent),
-        validator: convertPercentToContractFeePercent(validatorPercent),
+        // burn and validator are whole percentages (100 = 100%)
+        burn: String(burnPercent),
+        validator: String(validatorPercent),
         allowedFeeInstrument: ['KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'],
         contractFeeType: CONTRACT_FEE_TYPE[CONTRACT_FEE_TYPE_SELECTION as keyof typeof CONTRACT_FEE_TYPE]
       });
@@ -851,7 +841,6 @@ async function first(): Promise<void> {
       //   kycStatus: true,
       //   immutableKycStatus: false 
       // }),
-      // ...(USE_QUASH_THRESHOLD && { quashThreshold: 3 }),
       updateContractFees: USE_CONTRACT_FEES,
       updateExpenseRatio: USE_EXPENSE_RATIO
     };
@@ -869,7 +858,6 @@ async function first(): Promise<void> {
     if (USE_TOKEN_COMPLIANCE) console.log('  ✓ Token Compliance');
     if (USE_MAX_SUPPLY_RELEASE) console.log('  ✓ Max Supply Release');
     if (USE_KYC) console.log('  ✓ KYC Status');
-    if (USE_QUASH_THRESHOLD) console.log('  ✓ Quash Threshold');
 
     // Note best to overestimate fee. Fee provided here is for contract #1. As more contractID's that are equal are created cost increases exponentially.
     const contract = await createContractTXN(options);

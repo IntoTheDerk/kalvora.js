@@ -138,7 +138,7 @@ export async function buildVoteTXN(
   if (feeId !== undefined) baseParams.feeId = feeId;
   if (feeAmountParts !== undefined) baseParams.feeAmountParts = feeAmountParts;
   if (options.timestamp !== undefined) baseParams.timestamp = options.timestamp;
-  const base = buildStandardBaseTXN(baseParams);
+  const base = buildStandardBaseTXN(baseParams, 'kal_txn.GovernanceVote');
 
   const voteData: Record<string, unknown> = { base, contractId, proposalId: proposalBytes };
   if (hasSupport && options.support !== undefined) voteData.support = options.support;

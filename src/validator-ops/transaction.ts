@@ -16,32 +16,28 @@
  * Envelope handling (nonce, `BaseTXN`, fee) is delegated to the shared
  * standard transaction pipeline in `shared/tx/standard`.
  *
- * ## Generated-key signature — protocol assumption
+ * ## Generated-key signature — V1 signing order
  *
- * The proto comment for `ValidatorRegistration.generated_signature` reads
- * "signature of the generated public key (signing txn hash)". This module
- * therefore computes it **after** the operator has signed, as
+ * Both signers validate the pinned chain identity and V1 context. The
+ * generated-key signature is computed **after** the operator has signed, as
  * `sign(generatedPrivateKey, base.hash)`, where `base.hash` is the SHA3-256
  * hash produced by operator signing (with `generated_signature` still empty).
  * `generated_signature` is consequently **not** covered by `base.signature`
  * or `base.hash`.
  *
- * The exact verification order used by validators has not been verified
- * against the node implementation. If it differs, use the lower-level
- * {@link buildValidatorRegistrationTXN} + `signWithKey` +
- * {@link attachGeneratedSignature} (or your own signing) to adapt.
- *
  * @module validator-ops/transaction
  */
 
-import { create } from '@bufbuild/protobuf';
+import { clone, create } from '@bufbuild/protobuf';
 
 import {
+  AttestationKeySchema,
   PublicKeySchema,
   ValidatorHeartbeatSchema,
   ValidatorRegistrationSchema,
   ValidatorSchema,
   type BaseTXN,
+  type AttestationKey,
   type Validator,
   type ValidatorHeartbeat,
   type ValidatorRegistration
@@ -62,7 +58,8 @@ import {
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
 import { bytesEqual, bytesToHex } from '../shared/utils/byte-utils.js';
-import { signWithKey } from '../sign/finalize.js';
+import { assertTransactionContext, type TransactionContext } from '../sign/context.js';
+import { finalizeTransactionHash, signWithKey } from '../sign/finalize.js';
 import type { GRPCConfig } from '../types/index.js';
 
 // ============================================================================
@@ -76,6 +73,16 @@ import type { GRPCConfig } from '../types/index.js';
  * `feeAmountParts` to build fully offline and deterministically.
  */
 export type ValidatorOpsTXNOptions = StandardTXNOptions;
+
+/** BLS12-381 attestation key and proof supplied by the validator operator. */
+export interface AttestationKeyInput {
+  /** Version of this attestation key (uint64). */
+  version: string | number | bigint;
+  /** Compressed BLS12-381 G1 public key, 48 bytes. */
+  publicKey: Uint8Array;
+  /** BLS12-381 G2 proof of possession, 96 bytes. */
+  proofOfPossession: Uint8Array;
+}
 
 /**
  * Readable input for the `kal_txn.Validator` record embedded in a
@@ -112,6 +119,8 @@ export interface ValidatorInfoInput {
   version?: number;
   /** Last heartbeat marker (uint64). Defaults to `0`. */
   lastHeartbeat?: string | number | bigint;
+  /** Attestation key material for consensus participation. */
+  attestationKey?: AttestationKeyInput;
 }
 
 /**
@@ -223,6 +232,21 @@ function requirePrivateKey(value: unknown, field: string): string {
   return value;
 }
 
+function buildAttestationKey(input: AttestationKeyInput): AttestationKey {
+  requireObject(input, 'validator.attestationKey must be an object');
+  if (!(input.publicKey instanceof Uint8Array) || input.publicKey.length !== 48) {
+    throw new Error('validator.attestationKey.publicKey must be 48 bytes');
+  }
+  if (!(input.proofOfPossession instanceof Uint8Array) || input.proofOfPossession.length !== 96) {
+    throw new Error('validator.attestationKey.proofOfPossession must be 96 bytes');
+  }
+  return create(AttestationKeySchema, {
+    version: parseUint64(input.version, 'validator.attestationKey.version'),
+    publicKey: input.publicKey.slice(),
+    proofOfPossession: input.proofOfPossession.slice()
+  });
+}
+
 function buildValidatorRecord(input: ValidatorInfoInput, operatorPublicKey: string): Validator {
   requireObject(input, 'validator object is required');
   const publicKeyId = requirePublicKeyId(input.publicKey ?? operatorPublicKey, 'validator.publicKey');
@@ -239,7 +263,8 @@ function buildValidatorRecord(input: ValidatorInfoInput, operatorPublicKey: stri
     version: input.version === undefined ? 0 : parseUint32(input.version, 'validator.version'),
     lastHeartbeat: input.lastHeartbeat === undefined
       ? 0n
-      : parseUint64(input.lastHeartbeat, 'validator.lastHeartbeat')
+      : parseUint64(input.lastHeartbeat, 'validator.lastHeartbeat'),
+    ...(input.attestationKey !== undefined ? { attestationKey: buildAttestationKey(input.attestationKey) } : {})
   });
 }
 
@@ -336,21 +361,24 @@ function signatureLength(publicKeyId: string): number {
  * hash)". The transaction must already carry `base.signature` and `base.hash`
  * (i.e. be signed by the operator), and its `generated_public_key` must match
  * `generatedPublicKey`.
+ * The supplied hash must match the owner-signed registration body, so the
+ * operational signature cannot authorize a foreign hash hidden behind local context.
  *
- * **Assumption:** validators verify `generated_signature` over the final
- * `base.hash` (computed with `generated_signature` empty). This ordering has
- * not been verified against the node implementation. Because
- * `generated_signature` is set after hashing, it is not covered by
+ * V1 validators verify `generated_signature` over `base.hash`, computed with
+ * `generated_signature` empty. Because it is set after hashing, it is not covered by
  * `base.signature` / `base.hash`, and calling this does not invalidate the
  * operator signature. Calling it again replaces the previous value.
  *
  * @param txn - Operator-signed registration (mutated in place)
  * @param generatedPrivateKey - Base58 private key of the node-generated key
  * @param generatedPublicKey - Base58 public key identifier of the node-generated key
+ * @param context - Explicit trusted chain context, or the configured context
  * @returns The same transaction, with `generatedSignature` populated
  *
  * @throws Error when the transaction is not operator-signed, a key is missing,
- *   or `generatedPublicKey` does not match `txn.generatedPublicKey`.
+ *   `generatedPublicKey` does not match `txn.generatedPublicKey`, or the V1
+ *   context does not match the pinned chain and registration type, or the hash
+ *   does not match the signed registration body.
  *
  * @example
  * ```typescript
@@ -361,7 +389,8 @@ function signatureLength(publicKeyId: string): number {
 export function attachGeneratedSignature(
   txn: ValidatorRegistration,
   generatedPrivateKey: string,
-  generatedPublicKey: string
+  generatedPublicKey: string,
+  context?: TransactionContext
 ): ValidatorRegistration {
   requireObject(txn, 'attachGeneratedSignature: transaction is required');
   const privateKey = requirePrivateKey(generatedPrivateKey, 'generatedPrivateKey');
@@ -369,6 +398,12 @@ export function attachGeneratedSignature(
   const base = txn.base;
   if (!base?.signature || base.signature.length === 0 || !base.hash || base.hash.length === 0) {
     throw new Error('attachGeneratedSignature: transaction must be signed by the operator first (missing base.signature or base.hash)');
+  }
+  assertTransactionContext(txn, context);
+  const canonical = finalizeTransactionHash(clone(ValidatorRegistrationSchema, txn), context);
+  const canonicalHash = canonical.base?.hash;
+  if (!canonicalHash || !bytesEqual(base.hash, canonicalHash)) {
+    throw new Error('attachGeneratedSignature: base.hash does not match the signed registration body');
   }
   const embedded = txn.generatedPublicKey?.single;
   if (!embedded || !bytesEqual(embedded, getPublicKeyBytes(publicKeyId))) {
@@ -389,9 +424,8 @@ export function attachGeneratedSignature(
  * 3. {@link attachGeneratedSignature} — `generated_signature =
  *    sign(generatedKeyPair.privateKey, base.hash)`.
  *
- * **Assumption:** step 3 follows the proto comment "signature of the generated
- * public key (signing txn hash)"; the validator-side verification order is
- * unverified. See {@link attachGeneratedSignature}.
+ * Both signatures use the V1 registration context. The generated signature
+ * remains outside the owner signature and transaction hash.
  *
  * @param input - Registration parameters; `generatedPublicKey` may be omitted
  * @param operatorPrivateKey - Operator's base58 private key (matching `input.publicKey`)

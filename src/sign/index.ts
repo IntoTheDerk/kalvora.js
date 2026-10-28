@@ -27,5 +27,10 @@ export {
   signWithKey,
   signCoinTXN,
   signCoinTXNWithKeys,
+  getTransactionSigningBytes,
+  getSponsorSigningBytes,
+  finalizeTransactionHash,
   type CoinTXNKeyPair
 } from './finalize.js';
+
+export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './context.js';

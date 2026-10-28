@@ -1,8 +1,9 @@
 /**
  * Live protonet submit: a governance proposal with a CoinTXN attached.
  *
- * Skipped unless both `KALVORA_LIVE_ENDPOINT` and `KALVORA_PRIVATE_KEY` are
- * set. The key is a base58 Ed25519 seed and is never printed.
+ * Skipped unless `KALVORA_LIVE_ENDPOINT`, `KALVORA_PRIVATE_KEY`, and the trusted
+ * operator-supplied `KALVORA_LIVE_CHAIN_ID` are set. The chain ID is 64 hex
+ * characters. The key is a base58 Ed25519 seed and is never printed.
  *
  *   Get-Content .env | ForEach-Object { if ($_ -match '^\s*([^#][^=]*)=(.*)$') { Set-Item -Path "env:$($Matches[1].Trim())" -Value $Matches[2].Trim() } }
  *   npx vitest run src/proposal/tests/live-coin-proposal.test.ts
@@ -24,6 +25,7 @@ import {
 import { buildCoinTXN } from '../../coin-txn/transaction.js';
 import { createQueryClient } from '../../query/api-client.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
+import { configureTransactionContext } from '../../sign/context.js';
 import { signCoinTXNWithKeys, signWithKey } from '../../sign/finalize.js';
 import type { GRPCConfig } from '../../types/index.js';
 import { Ed25519KeyPair } from '../../wallet-creation/crypto-core.js';
@@ -35,6 +37,7 @@ vi.unmock('@connectrpc/connect-web');
 
 const ENDPOINT = process.env.KALVORA_LIVE_ENDPOINT ?? '';
 const PRIVATE_KEY = process.env.KALVORA_PRIVATE_KEY ?? '';
+const CHAIN_ID = process.env.KALVORA_LIVE_CHAIN_ID ?? '';
 
 function ed25519Identity(privateKeyBase58: string): { publicKey: string; address: string } {
   let seed = bs58.decode(privateKeyBase58);
@@ -98,8 +101,9 @@ function sealGovernanceCoin(coin: CoinTXN, publicKey: string, privateKey: string
   });
 }
 
-describe.skipIf(!ENDPOINT || !PRIVATE_KEY)('live proposal with an attached coin txn', () => {
+describe.skipIf(!ENDPOINT || !PRIVATE_KEY || !CHAIN_ID)('live proposal with an attached coin txn', () => {
   it('builds a KALV proposal carrying a one-part coin transfer and submits it to protonet', async () => {
+    configureTransactionContext({ chainId: CHAIN_ID });
     const grpcConfig: GRPCConfig = { endpoint: ENDPOINT };
     const query = createQueryClient(grpcConfig);
     const { publicKey, address } = ed25519Identity(PRIVATE_KEY);

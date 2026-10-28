@@ -89,7 +89,7 @@ export async function buildProposalCancelTXN(
     ...(options.timestamp !== undefined ? { timestamp: options.timestamp } : {}),
     feeId,
     ...(options.feeAmountParts !== undefined ? { feeAmountParts: options.feeAmountParts } : {})
-  });
+  }, 'kal_txn.ProposalCancelTXN');
 
   const proposalCancel = create(ProposalCancelTXNSchema, {
     base,

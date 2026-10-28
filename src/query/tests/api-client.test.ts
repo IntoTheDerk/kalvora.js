@@ -750,6 +750,18 @@ describe('block queries', () => {
       expect(calls).toEqual([10n, 11n, 12n, 13n]);
     });
 
+    it('waitForTransaction skips a matching hash-only row without a processing status', async () => {
+      const { calls, query } = chain(20, height => height === 10n
+        ? create(BlockSchema, {
+          blockHeader: { blockHeight: height },
+          transactions: { txnFeesAndStatus: [{ txnHash: hash32(0x77) }] }
+        })
+        : blockWithResult(height, 0x77));
+      const result = await query.waitForTransaction(TX, { fromHeight: 10, pollIntervalMs: 1, timeoutMs: 1000 });
+      expect(result).toMatchObject({ blockHeight: 11n, success: true });
+      expect(calls).toEqual([10n, 11n]);
+    });
+
     it('waitForTransaction polls until the block containing the transaction is produced', async () => {
       let tip = 10n;
       const calls: bigint[] = [];

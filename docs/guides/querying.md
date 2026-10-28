@@ -117,8 +117,11 @@ for (const event of events) {
 const nextStart = nextSmartContractEventSearchStart(events); // one millisecond after the newest
 ```
 
-Events are oldest-first and are pruned after about three days. Pass
-`nextStart` as the next search start to page forward.
+Events are oldest-first and are pruned after about three days. This helper
+uses legacy all-or-error mode, limited to 256 matches. `nextStart` advances a
+timestamp filter, not a cursor, and cannot guarantee complete pagination.
+Authenticated cursor paging is available through `.raw`; verify the response
+signature and its exact request digest before accepting a page.
 
 A validator can also push `SmartContractEvents` to a server you registered.
 There is no listening server in this SDK. When you receive a
@@ -130,8 +133,9 @@ protobuf bytes with `signature` cleared, and throws when it does not verify.
 ## Raw database access
 
 `getDatabaseValue(DATABASE_TYPE.X, key)` exposes the validator's internal
-records. Encodings differ per table (plain strings, binary protobuf, or
-protobuf text format), so prefer the typed helpers above.
+records as uncertified diagnostics. Encodings differ per table (plain strings,
+binary protobuf, or protobuf text format). Typed decoders do not certify the
+underlying state; the raw RPC also exposes `diagnosticUnverified`.
 
 ## Validator and guardian services
 
@@ -146,13 +150,17 @@ import {
 
 const validator = createValidatorQueryClient(config);
 await validator.getNonce(address);
-await validator.getCheckpointInfo(new KeyPairSigner(publicKey, privateKey)); // signed request
+await validator.syncValidatorList(new KeyPairSigner(publicKey, privateKey)); // signed request
 
 const guardian = createGuardianQueryClient({ endpoint: 'https://guardian.example' });
 await guardian.getPayload(txnHash, NETWORK_TYPE_KALVORA);   // payload / VAA for a Kalvora txn
 await guardian.getPayload(solanaSig, NETWORK_TYPE.SOLANA);  // payload / VAA for a Solana txn
 await guardian.getMintInfo([contractId]);                  // Map<contractId, solanaMint>
 ```
+
+Public checkpoint metadata and downloads are disabled at clean genesis.
+The deprecated `getCheckpointInfo` helper receives `PERMISSION_DENIED` from
+current nodes. Recovery uses verified local snapshots and controlled operator access.
 
 `NETWORK_TYPE_KALVORA` is the guardian protocol's network value for Kalvora
 (`0`); `NETWORK_TYPE.SOLANA` is `1`. A `KalvoraClient` built with a

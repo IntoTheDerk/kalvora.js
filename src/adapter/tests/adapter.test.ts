@@ -24,6 +24,7 @@ import type {
 } from '../../../proto/generated/txn_pb.js';
 import { buildContractTXN } from '../../contract/create/transaction.js';
 import { buildContractUpdateTXN } from '../../contract/update/transaction.js';
+import { transactionContextFields } from '../../sign/context.js';
 import { signAndFinalize } from '../../sign/finalize.js';
 import { KeyPairSigner, type KalvoraSigner } from '../../sign/signer.js';
 import { buildSmartContractExecuteTXN } from '../../smart-contracts/execute/transaction.js';
@@ -390,7 +391,10 @@ describe('signAndFinalize — roundtrip', () => {
     const signer = new KeyPairSigner(publicKey, privateKey);
 
     // Construct a minimal GovernanceVote with a base
-    const base = create(BaseTXNSchema, { feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao' });
+    const base = create(BaseTXNSchema, {
+      ...transactionContextFields('GovernanceVote'),
+      feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
+    });
     const vote = create(GovernanceVoteSchema, { base, contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', support: true });
 
     // Before signing: no signature, no hash
@@ -410,7 +414,10 @@ describe('signAndFinalize — roundtrip', () => {
     const { publicKey, privateKey } = getTestKeyPair();
     const signer = new KeyPairSigner(publicKey, privateKey);
 
-    const base = create(BaseTXNSchema, { feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao' });
+    const base = create(BaseTXNSchema, {
+      ...transactionContextFields('SmartContractExecuteTXN'),
+      feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
+    });
     const exec = create(SmartContractExecuteTXNSchema, {
       base, smartContractName: 'test', function: 'call', instance: 0
     });
@@ -427,7 +434,10 @@ describe('signAndFinalize — roundtrip', () => {
     const { publicKey, privateKey } = getTestKeyPair();
     const signer = new KeyPairSigner(publicKey, privateKey);
 
-    const base = create(BaseTXNSchema, { feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao' });
+    const base = create(BaseTXNSchema, {
+      ...transactionContextFields('InstrumentContract'),
+      feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
+    });
     const contract = create(InstrumentContractSchema, {
       base, symbol: 'TST', name: 'Test', contractId: 'TST0000'
     });
@@ -443,7 +453,10 @@ describe('signAndFinalize — roundtrip', () => {
     const { publicKey, privateKey } = getTestKeyPair();
     const signer = new KeyPairSigner(publicKey, privateKey);
 
-    const base = create(BaseTXNSchema, { feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao' });
+    const base = create(BaseTXNSchema, {
+      ...transactionContextFields('ContractUpdateTXN'),
+      feeAmount: '1', feeId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
+    });
     const update = create(ContractUpdateTXNSchema, {
       base, contractId: 'TST0000', contractVersion: BigInt(1)
     });

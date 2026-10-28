@@ -50,6 +50,7 @@ import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js'
 import { getTokenInfo, type TokenInfo, normalizeContractId } from '../shared/utils/token-info.js';
 import { toSmallestUnits } from '../shared/utils/unified-amount-conversion.js';
 import { isValidContractId } from '../shared/utils/validation.js';
+import { transactionContextFields } from '../sign/context.js';
 import { signCoinTXNWithKeys } from '../sign/finalize.js';
 import type {
   AmountInput,
@@ -289,7 +290,7 @@ function createBaseTransaction(baseFeeId: string = KALVORA_NATIVE_TOKEN, baseFee
   if (baseMemo && baseMemo.trim() !== '') {
     baseData.memo = baseMemo;
   }
-  return create(BaseTXNSchema, baseData);
+  return create(BaseTXNSchema, { ...baseData, ...transactionContextFields('kal_txn.CoinTXN') });
 }
 
 function createTransferAuth(

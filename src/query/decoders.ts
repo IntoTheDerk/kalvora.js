@@ -197,7 +197,6 @@ const TXNS_LIST_TYPES = {
   validatorHeartbeatTxns: TRANSACTION_TYPE.VALIDATOR_HEARTBEAT_TYPE,
   proposalResultTxns: TRANSACTION_TYPE.PROPOSAL_RESULT_TYPE,
   delegatedVotingTxns: TRANSACTION_TYPE.DELEGATED_VOTING_TYPE,
-  quashTxns: TRANSACTION_TYPE.QUASH_TYPE,
   revokeTxns: TRANSACTION_TYPE.REVOKE_TYPE,
   complianceTxns: TRANSACTION_TYPE.COMPLIANCE_TYPE,
   burnSbtTxns: TRANSACTION_TYPE.SBT_BURN_TYPE,
@@ -272,6 +271,9 @@ export interface TransactionResult {
 
 /** Convert a raw `TXNStatusFees` record into a {@link TransactionResult}. */
 export function toTransactionResult(raw: TXNStatusFees): TransactionResult {
+  if (raw.status === undefined) {
+    throw new Error('TXNStatusFees.status is missing; this record is not a processing receipt');
+  }
   return {
     hash: bytesToHex(raw.txnHash),
     status: raw.status,
@@ -292,11 +294,13 @@ export function toTransactionResult(raw: TXNStatusFees): TransactionResult {
  *
  * @param block - Block to search
  * @param txnHash - Hex transaction hash (optionally `0x`-prefixed, any case)
- * @returns The result, or `undefined` if the block does not contain it
+ * @returns The result, or `undefined` if no matching record has an explicit status
  */
 export function findTransactionResult(block: Block, txnHash: string): TransactionResult | undefined {
   const wanted = txnHash.toLowerCase().replace(/^0x/u, '');
-  const raw = block.transactions?.txnFeesAndStatus.find(entry => bytesToHex(entry.txnHash) === wanted);
+  const raw = block.transactions?.txnFeesAndStatus.find(entry =>
+    bytesToHex(entry.txnHash) === wanted && entry.status !== undefined
+  );
   return raw ? toTransactionResult(raw) : undefined;
 }
 
@@ -338,6 +342,8 @@ export function summarizeBlock(block: Block): BlockSummary {
     version: header?.version,
     transactionCount: transactions.length,
     transactionsByType,
-    results: (block.transactions?.txnFeesAndStatus ?? []).map(toTransactionResult)
+    results: (block.transactions?.txnFeesAndStatus ?? [])
+      .filter(entry => entry.status !== undefined)
+      .map(toTransactionResult)
   };
 }
