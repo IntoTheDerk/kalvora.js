@@ -36,6 +36,11 @@ const hash = await sendGovernanceProposalTXN(proposal);
 
 `title`, `synopsis`, and `body` are limited to 512, 2048, and 16384 UTF-8
 bytes (`TEXT_PROPOSAL_LIMITS`).
+All three fields must be nonblank, NFC and well-formed Unicode without hidden
+formatting or unsupported control characters. Title and synopsis must stay on
+one line without outer whitespace. The Markdown body permits tabs and LF and
+preserves leading indentation, trailing spaces and final newlines exactly;
+the builder never trims or normalizes authored text. CR remains unsupported.
 
 ## Proposal that executes a coin transfer
 

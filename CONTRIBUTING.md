@@ -9,11 +9,23 @@ Thanks for your interest in contributing. This project is community-run — ever
 ```bash
 git clone https://github.com/intothederk/kalvora.js.git
 cd kalvora.js
-npm install
-npm run proto:install
-npm run build:proto
-npm run build
+npm ci
 ```
+
+The standard `prepare` lifecycle installs the separately locked protobuf build
+dependencies and runs the SDK build, producing the ignored `dist/` exports and
+generated protobuf bindings. It also runs when npm installs a Git dependency.
+Use an exact reviewed commit, for example
+`git+https://github.com/intothederk/kalvora.js.git#<full-commit-sha>`; no npm
+publication is required. The SHA pins SDK source, not an immutable prebuilt
+artifact. Dependency/code-generator installation needs network access or a
+populated cache. Lifecycle scripts must be enabled, and the build currently
+requires the optional Solana dependencies for its root exports and CJS bundle.
+The hook builds and validates bundles; it does not publish or run live tests.
+
+After source edits, run `npm run build` explicitly. To set up a checkout without
+running the lifecycle immediately, use `npm ci --ignore-scripts`, then install
+the protobuf dependencies and run the build yourself before importing the SDK.
 
 Verify everything is working:
 

@@ -44,6 +44,7 @@
     "src/**/*",
     "index.ts",
     "wallet.ts",
+    "native.ts",
     "proto/generated/**/*.ts",
     "proto/generated/**/*.d.ts"
   ],

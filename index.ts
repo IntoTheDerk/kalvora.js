@@ -532,7 +532,7 @@ export {
 export { bytesToHex, hexToBytes } from './src/shared/utils/byte-utils.js';
 
 /** SDK version. */
-export const VERSION = '0.0.1-alpha.2' as const;
+export { VERSION } from './src/version.js';
 
 /** SDK description. */
 export const DESCRIPTION = 'Kalvora JavaScript SDK' as const;

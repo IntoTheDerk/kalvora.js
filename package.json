@@ -31,6 +31,7 @@
     "test:live": "vitest run src/query/tests/live.test.ts",
     "docs": "typedoc",
     "validate": "npm run type-check && npm run lint:check && npm test",
+    "prepare": "npm ci --prefix proto --include=dev --no-audit --no-fund && npm run build",
     "prepublishOnly": "npm run validate && npm run build",
     "deploy": "tsx publishing/deploy.ts",
     "deploy:patch": "tsx publishing/deploy.ts patch",
@@ -87,6 +88,11 @@
       "import": "./dist/wallet.js",
       "default": "./dist/wallet.js"
     },
+    "./native": {
+      "types": "./dist/native.d.ts",
+      "import": "./dist/native.js",
+      "default": "./dist/native.js"
+    },
     "./dist/*": "./dist/*"
   },
   "overrides": {
@@ -102,13 +108,11 @@
     "bs58": "^6.0.0",
     "decimal.js": "^10.6.0"
   },
-  "optionalDependencies": {
-    "@solana/spl-token": "^0.4.14",
-    "@solana/web3.js": "^1.98.4"
-  },
   "devDependencies": {
     "@bufbuild/protoc-gen-es": "^2.11.0",
     "@eslint/js": "^9.37.0",
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4",
     "@types/node": "^20.19.21",
     "@typescript-eslint/eslint-plugin": "^8.46.0",
     "@typescript-eslint/parser": "^8.46.0",
@@ -125,5 +129,17 @@
     "typescript": "5.9",
     "vite-tsconfig-paths": "^5.1.4",
     "vitest": "^3.2.4"
+  },
+  "peerDependencies": {
+    "@solana/spl-token": "^0.4.14",
+    "@solana/web3.js": "^1.98.4"
+  },
+  "peerDependenciesMeta": {
+    "@solana/spl-token": {
+      "optional": true
+    },
+    "@solana/web3.js": {
+      "optional": true
+    }
   }
 }

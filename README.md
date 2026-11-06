@@ -60,9 +60,28 @@ or any signer you write.
 npm install kalvora.js
 ```
 
-Requires Node.js 20 or later, a modern browser, or React Native. The Solana
-bridge helpers use the optional dependencies `@solana/web3.js` and
-`@solana/spl-token`; everything else works without them.
+Requires Node.js 20 or later, a modern browser, or React Native. The full ESM
+root eagerly loads the Solana bridge. Its bridge dependencies are optional peers
+and are **not installed automatically**. Use `kalvora.js/native` for native
+queries and governance operations, or `kalvora.js/wallet` for keys only. Neither
+entry requires the Solana packages.
+
+Optional peers still impose package-wide version constraints when present. This
+also applies to consumers importing only `/native` or `/wallet`: existing
+`@solana/web3.js` must satisfy `^1.98.4`, and existing `@solana/spl-token` must
+satisfy `^0.4.14`. Incompatible pinned versions can cause npm `ERESOLVE` before
+any SDK code runs. This installation constraint is intentional on the alpha
+development line; consumers without Solana packages need not add them.
+
+Before using the full root ESM API or the bridge examples, install the peers:
+
+```bash
+npm install kalvora.js @solana/web3.js@^1.98.4 @solana/spl-token@^0.4.14
+```
+
+Existing root ESM consumers upgrading from automatic optional dependencies must
+add these two dependencies explicitly. The CommonJS bundle still contains bridge
+code; use the narrow ESM entries to avoid loading it.
 
 ## Quick start
 
@@ -188,6 +207,30 @@ derivation, key pairs, address encoding). It depends only on `@noble/curves`,
 transaction code, and never touches the network, which makes it a good fit for
 a browser custody layer. It is ESM-only; CommonJS callers use the main entry,
 which exports the same functions.
+
+### Native entry: `kalvora.js/native`
+
+`kalvora.js/native` is ESM-only and exports the existing native client,
+governance proposal/vote builders, proposal submission, stage-fee arithmetic,
+serialization, address and contract validation, RPC errors, enums, and their
+types and SDK `VERSION`. It also exposes `UniversalFeeCalculator` for callers
+supplying explicit native fee metadata. It has no Solana bridge import; network
+operations still use the same SDK implementations and configuration.
+
+```typescript
+import { KalvoraClient, buildVoteTXN, serializeTransaction, configureTransactionContext } from 'kalvora.js/native';
+import type { GRPCConfig, ProposalConstructionContext, TransactionContext } from 'kalvora.js/native';
+
+// The operator supplies this trusted pin; never infer it from an incoming transaction.
+configureTransactionContext({ chainId: ifcConfiguredChainId });
+```
+
+An ordinary consumer install supports this entry without Solana packages or
+`--omit=optional`. Building the full SDK from source, including its Git `prepare`
+step, installs the bridge packages as development dependencies for its build and
+tests; they are not propagated to consumers. The root exports and CommonJS
+bundle retain their bridge code. This packaging boundary does not remediate
+advisories in bridge consumers or remove code from the full CommonJS bundle.
 
 ### Derivation
 
@@ -347,8 +390,9 @@ function carries TSDoc. Generate the API reference with `npm run docs`
 |---|---|---|
 | `kalvora.js` | The full SDK: client, queries, wallets, signing, every transaction builder, adapters, use cases, raw protobuf bindings (`proto`) | ESM, CommonJS, React Native, types |
 | `kalvora.js/wallet` | Wallets and keys only: mnemonics, HD derivation, key pairs, addresses. No network or protobuf code | ESM, types |
+| `kalvora.js/native` | Native client and governance, trusted signing context, encoding, validation and fees; no Solana imports | ESM, types |
 
-Every public API is exported from one of these two entry points; deep imports
+Every public API is exported from one of these entry points; deep imports
 into `dist/` are not supported.
 
 ## Stability

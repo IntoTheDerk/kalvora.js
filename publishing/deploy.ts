@@ -152,17 +152,18 @@ function getLatestPublishedVersion(): string {
 function updateSdkExportVersion(version: string): void {
   const indexPath = join(projectRoot, 'index.ts');
   const current = readFileSync(indexPath, 'utf8');
+  const versionPath = join(projectRoot, 'src/version.ts');
+  const currentVersion = readFileSync(versionPath, 'utf8');
   const versionCommentPattern = /@version\s+\d+\.\d+\.\d+(?:-[\w.-]+)?/;
   const versionExportPattern = /export const VERSION = ['"]\d+\.\d+\.\d+(?:-[\w.-]+)?['"] as const;/;
 
-  if (!versionCommentPattern.test(current) || !versionExportPattern.test(current)) {
-    throw new Error('Could not find SDK version markers in index.ts');
+  if (!versionExportPattern.test(currentVersion)) {
+    throw new Error('Could not find SDK version export in src/version.ts');
   }
 
-  const next = current
-    .replace(versionCommentPattern, `@version ${version}`)
-    .replace(versionExportPattern, `export const VERSION = '${version}' as const;`);
+  const next = current.replace(versionCommentPattern, `@version ${version}`);
 
+  writeFileSync(versionPath, currentVersion.replace(versionExportPattern, `export const VERSION = '${version}' as const;`));
   writeFileSync(indexPath, next);
   logSuccess(`SDK export version updated: ${version}`);
 }
@@ -483,6 +484,7 @@ async function deploy(versionType?: 'patch' | 'minor' | 'major') {
   
   const initialVersion = getCurrentVersion();
   const initialIndexContent = readFileSync(join(projectRoot, 'index.ts'), 'utf8');
+  const initialSdkVersionContent = readFileSync(join(projectRoot, 'src/version.ts'), 'utf8');
   const packageLockPath = join(projectRoot, 'package-lock.json');
   const initialPackageLockContent = existsSync(packageLockPath) ? readFileSync(packageLockPath, 'utf8') : null;
   logInfo(`Current version: ${initialVersion}`);
@@ -557,6 +559,7 @@ async function deploy(versionType?: 'patch' | 'minor' | 'major') {
         
         writeFileSync(packageJsonPath, `${JSON.stringify(packageJson, null, 2)}\n`);
         writeFileSync(join(projectRoot, 'index.ts'), initialIndexContent);
+        writeFileSync(join(projectRoot, 'src/version.ts'), initialSdkVersionContent);
         if (initialPackageLockContent !== null) {
           writeFileSync(packageLockPath, initialPackageLockContent);
         }

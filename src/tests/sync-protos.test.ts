@@ -113,8 +113,9 @@ describe('sync-protos --check', () => {
   it('exits 0 when the rewritten indexer protos match the SDK protos', () => {
     const source = makeSource('up-to-date');
     const { status, stdout, stderr } = runCheck(['--source', source]);
-    expect(stderr).toBe('');
-    expect(status).toBe(0);
+    // Node may emit loader deprecations on stderr; success is the exit status
+    // plus the exact up-to-date messages asserted below.
+    expect(status, stderr).toBe(0);
     for (const [, to] of FILES) {
       expect(stdout).toContain(`up to date  ${to}`);
     }
@@ -124,8 +125,9 @@ describe('sync-protos --check', () => {
   it('accepts the official flat release and skips the absent guardian.proto', () => {
     const source = makeFlatSource('official-flat');
     const { status, stdout, stderr } = runCheck(['--source', source]);
-    expect(stderr).toBe('');
-    expect(status).toBe(0);
+    // Node may emit loader deprecations on stderr; success is the exit status
+    // plus the exact up-to-date messages asserted below.
+    expect(status, stderr).toBe(0);
     for (const file of OFFICIAL_FILES) {
       expect(stdout).toContain(`up to date  ${file}`);
     }
