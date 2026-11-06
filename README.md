@@ -22,9 +22,13 @@ unsigned bytes to a browser wallet, a WalletConnect session, a hardware device
 or any signer you write.
 
 > **Alpha.** The version is `0.0.x`, and any release may change any API. Pin an
-> exact version (`npm install kalvora.js@0.0.1-alpha.2`), test on protonet
+> exact reviewed version or Git commit, test on protonet
 > before anything touches real funds, and please
 > [report issues](https://github.com/IntoTheDerk/kalvora.js/issues).
+
+This source is the unpublished `0.0.1-alpha.3` review candidate for the breaking
+clean-genesis protocol. Published `alpha.2` predates these changes; install this
+candidate by an exact reviewed Git commit, as described in [CONTRIBUTING](./CONTRIBUTING.md).
 
 ## Contents
 

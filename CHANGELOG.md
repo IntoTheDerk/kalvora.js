@@ -7,6 +7,12 @@ release may change APIs; pin an exact version.
 
 ## [Unreleased]
 
+## [0.0.1-alpha.3] — unpublished review candidate
+
+This source version distinguishes the breaking clean-genesis protocol from
+published alpha.2. Pin a reviewed Git commit; no npm release is implied.
+Wallet derivation is unchanged.
+
 ### Changed
 
 - **Breaking:** sync the 2026-10-27 clean-genesis network protos and regenerate
@@ -24,6 +30,17 @@ release may change APIs; pin an exact version.
 - Processing-result decoders require explicit `TXNStatusFees.status` presence;
   transaction polling ignores hash-only rows. Receipt polling does not verify
   block finality evidence.
+
+### Packaging and text correctness
+
+- Restore the ESM-only `kalvora.js/native` entry, including trusted chain
+  configuration/assertion, and the Git `prepare` build lifecycle.
+- Solana bridge packages are optional peers, not automatic consumer installs;
+  the full root ESM entry still requires compatible explicit peers.
+- Preserve exact nonblank Markdown body whitespace and reject dangling Unicode
+  surrogates before protobuf encoding. Title/synopsis validation stays strict.
+- Keep native/root versions synchronized and consumer declarations compatible
+  with NodeNext. Native package smoke checks require no live RPC access.
 
 ### Added
 
