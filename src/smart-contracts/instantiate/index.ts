@@ -16,3 +16,5 @@ export {
   type ParameterType,
   type SmartContractParameter
 } from '../shared/parameters.js';
+
+export type { SmartContractAllowanceInput } from '../shared/allowances.js';

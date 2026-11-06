@@ -199,7 +199,7 @@ export async function buildTextGovernanceProposalTXN(
     ...(options.feeAmountParts !== undefined
       ? { feeAmountParts: validatePositiveInteger(options.feeAmountParts, 'feeAmountParts') }
       : {})
-  });
+  }, 'kal_txn.GovernanceProposal');
 
   const proposal = create(GovernanceProposalSchema, {
     base,

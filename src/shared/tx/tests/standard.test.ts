@@ -10,7 +10,7 @@ import { createRouterTransport, type ServiceImpl } from '@connectrpc/connect';
 import bs58 from 'bs58';
 import { describe, expect, it, vi } from 'vitest';
 
-import { QuashTXNSchema, TXNService, type QuashTXN } from '../../../../proto/generated/txn_pb.js';
+import { RevokeTXNSchema, TXNService, type RevokeTXN } from '../../../../proto/generated/txn_pb.js';
 import { signWithKey } from '../../../sign/finalize.js';
 import { ED25519_TEST_KEYS } from '../../../test-utils/keys.test.js';
 import { getPublicKeyBytes } from '../../crypto/address-utils.js';
@@ -38,13 +38,13 @@ const TIMESTAMP = new Date('2026-07-25T09:22:00.123Z');
 const OFFLINE: StandardTXNOptions = { nonce: 42, feeAmountParts: '500', timestamp: TIMESTAMP };
 const U64_MAX = 0xFFFF_FFFF_FFFF_FFFFn;
 
-function buildQuash(options: StandardTXNOptions = OFFLINE, publicKeyId: string = alice.publicKey): Promise<QuashTXN> {
+function buildRevoke(options: StandardTXNOptions = OFFLINE, publicKeyId: string = alice.publicKey): Promise<RevokeTXN> {
   return buildStandardTransaction({
-    operation: 'buildQuashTXN',
-    schema: QuashTXNSchema,
+    operation: 'buildRevokeTXN',
+    schema: RevokeTXNSchema,
     publicKeyId,
     contractId: KALVORA_NATIVE_TOKEN,
-    fields: { contractId: KALVORA_NATIVE_TOKEN, txnHash: parseHash32(HASH_HEX, 'txnHash') },
+    fields: { contractId: KALVORA_NATIVE_TOKEN, itemId: '17', recipientAddress: parseAddress(bob.address) },
     options
   });
 }
@@ -263,10 +263,11 @@ describe('resolveNonce', () => {
 
 describe('buildStandardTransaction', () => {
   it('builds an unsigned message with the base envelope populated', async () => {
-    const txn = await buildQuash();
-    expect(txn.$typeName).toBe('kal_txn.QuashTXN');
+    const txn = await buildRevoke();
+    expect(txn.$typeName).toBe('kal_txn.RevokeTXN');
     expect(txn.contractId).toBe(KALVORA_NATIVE_TOKEN);
-    expect(txn.txnHash).toEqual(new Uint8Array(32).fill(0xab));
+    expect(txn.itemId).toBe('17');
+    expect(txn.recipientAddress).toEqual(parseAddress(bob.address));
     const base = txn.base!;
     expect(base.nonce).toBe(42n);
     expect(base.feeAmount).toBe('500');
@@ -284,31 +285,31 @@ describe('buildStandardTransaction', () => {
   });
 
   it('is deterministic offline (identical bytes for identical inputs)', async () => {
-    const a = toBinary(QuashTXNSchema, await buildQuash());
-    const b = toBinary(QuashTXNSchema, await buildQuash());
+    const a = toBinary(RevokeTXNSchema, await buildRevoke());
+    const b = toBinary(RevokeTXNSchema, await buildRevoke());
     expect(a).toEqual(b);
-    const otherNonce = toBinary(QuashTXNSchema, await buildQuash({ ...OFFLINE, nonce: 43 }));
+    const otherNonce = toBinary(RevokeTXNSchema, await buildRevoke({ ...OFFLINE, nonce: 43 }));
     expect(otherNonce).not.toEqual(a);
-    const otherKey = toBinary(QuashTXNSchema, await buildQuash(OFFLINE, bob.publicKey));
+    const otherKey = toBinary(RevokeTXNSchema, await buildRevoke(OFFLINE, bob.publicKey));
     expect(otherKey).not.toEqual(a);
   });
 
   it('maps memo, feeId and safeSend onto base', async () => {
-    const txn = await buildQuash({ ...OFFLINE, memo: 'hello', feeId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', safeSend: true });
+    const txn = await buildRevoke({ ...OFFLINE, memo: 'hello', feeId: 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95', safeSend: true });
     expect(txn.base?.memo).toBe('hello');
     expect(txn.base?.feeId).toBe('PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95');
     expect(txn.base?.safeSend).toBe(true);
 
-    const noSafe = await buildQuash({ ...OFFLINE, safeSend: false });
+    const noSafe = await buildRevoke({ ...OFFLINE, safeSend: false });
     expect(noSafe.base?.safeSend).toBe(false);
 
-    const blankMemo = await buildQuash({ ...OFFLINE, memo: '   ' });
+    const blankMemo = await buildRevoke({ ...OFFLINE, memo: '   ' });
     expect(blankMemo.base?.memo).toBeUndefined();
   });
 
   it('accepts a bigint / string nonce', async () => {
-    expect((await buildQuash({ ...OFFLINE, nonce: U64_MAX })).base?.nonce).toBe(U64_MAX);
-    expect((await buildQuash({ ...OFFLINE, nonce: '7' })).base?.nonce).toBe(7n);
+    expect((await buildRevoke({ ...OFFLINE, nonce: U64_MAX })).base?.nonce).toBe(U64_MAX);
+    expect((await buildRevoke({ ...OFFLINE, nonce: '7' })).base?.nonce).toBe(7n);
   });
 
   it.each([
@@ -320,8 +321,8 @@ describe('buildStandardTransaction', () => {
     ['A_0OIl', 'publicKey is not a valid Kalvora public key identifier']
   ])('rejects publicKey %j', async (publicKeyId, message) => {
     await expect(buildStandardTransaction({
-      operation: 'buildQuashTXN',
-      schema: QuashTXNSchema,
+      operation: 'buildRevokeTXN',
+      schema: RevokeTXNSchema,
       publicKeyId: publicKeyId as string,
       fields: { contractId: KALVORA_NATIVE_TOKEN },
       options: OFFLINE
@@ -329,7 +330,7 @@ describe('buildStandardTransaction', () => {
   });
 
   it.each(['bad id', '', ' KALX'])('rejects invalid feeId %j', async feeId => {
-    await expect(buildQuash({ ...OFFLINE, feeId })).rejects.toThrow(`feeId must be ${KALVORA_MINT_ID_ERROR}`);
+    await expect(buildRevoke({ ...OFFLINE, feeId })).rejects.toThrow(`feeId must be ${KALVORA_MINT_ID_ERROR}`);
   });
 
   it.each([
@@ -339,7 +340,7 @@ describe('buildStandardTransaction', () => {
     ['-1', /feeAmountParts must be a non-negative integer amount/],
     ['0', /feeAmountParts must be greater than zero/]
   ])('rejects feeAmountParts %j', async (feeAmountParts, message) => {
-    await expect(buildQuash({ ...OFFLINE, feeAmountParts })).rejects.toThrow(message);
+    await expect(buildRevoke({ ...OFFLINE, feeAmountParts })).rejects.toThrow(message);
   });
 
   // Regression: previously fixed bug (see CHANGELOG 1.0.0).
@@ -347,22 +348,22 @@ describe('buildStandardTransaction', () => {
     [' 5 ', '5'],
     ['007', '7']
   ])('canonicalises accepted feeAmountParts %j to %j on the wire', async (feeAmountParts, expected) => {
-    const txn = await buildQuash({ ...OFFLINE, feeAmountParts });
+    const txn = await buildRevoke({ ...OFFLINE, feeAmountParts });
     expect(txn.base?.feeAmount).toBe(expected);
   });
 
   it.each([Number.NaN, -1, Number.POSITIVE_INFINITY])('rejects overestimatePercent %s', async overestimatePercent => {
-    await expect(buildQuash({ ...OFFLINE, overestimatePercent }))
+    await expect(buildRevoke({ ...OFFLINE, overestimatePercent }))
       .rejects.toThrow('overestimatePercent must be a finite, non-negative number');
   });
 
   it('accepts overestimatePercent 0 when the fee is explicit', async () => {
-    const txn = await buildQuash({ ...OFFLINE, overestimatePercent: 0 });
+    const txn = await buildRevoke({ ...OFFLINE, overestimatePercent: 0 });
     expect(txn.base?.feeAmount).toBe('500');
   });
 
   it.each(['true', 1, null])('rejects non-boolean safeSend %j', async safeSend => {
-    await expect(buildQuash({ ...OFFLINE, safeSend: safeSend as unknown as boolean }))
+    await expect(buildRevoke({ ...OFFLINE, safeSend: safeSend as unknown as boolean }))
       .rejects.toThrow('safeSend must be a boolean');
   });
 
@@ -374,22 +375,22 @@ describe('buildStandardTransaction', () => {
     [{ interfaceFee: '0.25', interfaceAddress: bob.address }],
     [{ interfaceFeeId: KALVORA_NATIVE_TOKEN, interfaceAddress: bob.address }]
   ])('requires all three interface fee fields together: %j', async partial => {
-    await expect(buildQuash({ ...OFFLINE, ...partial }))
+    await expect(buildRevoke({ ...OFFLINE, ...partial }))
       .rejects.toThrow('interfaceFeeId, interfaceFee, and interfaceAddress must be provided together');
   });
 
   it('validates interfaceFeeId when all three interface fields are present', async () => {
-    await expect(buildQuash({ ...OFFLINE, interfaceFeeId: 'bad id', interfaceFee: '1', interfaceAddress: bob.address }))
+    await expect(buildRevoke({ ...OFFLINE, interfaceFeeId: 'bad id', interfaceFee: '1', interfaceAddress: bob.address }))
       .rejects.toThrow(`interfaceFeeId must be ${KALVORA_MINT_ID_ERROR}`);
   });
 
   it('rejects an invalid explicit nonce before building', async () => {
-    await expect(buildQuash({ ...OFFLINE, nonce: -3 })).rejects.toThrow('nonce must be an unsigned 64-bit integer');
-    await expect(buildQuash({ ...OFFLINE, nonce: U64_MAX + 1n })).rejects.toThrow('nonce must be an unsigned 64-bit integer');
+    await expect(buildRevoke({ ...OFFLINE, nonce: -3 })).rejects.toThrow('nonce must be an unsigned 64-bit integer');
+    await expect(buildRevoke({ ...OFFLINE, nonce: U64_MAX + 1n })).rejects.toThrow('nonce must be an unsigned 64-bit integer');
   });
 
   it('rejects an out-of-range timestamp', async () => {
-    await expect(buildQuash({ ...OFFLINE, timestamp: new Date(Number.NaN) }))
+    await expect(buildRevoke({ ...OFFLINE, timestamp: new Date(Number.NaN) }))
       .rejects.toThrow('Base transaction timestamp must be a valid protobuf Date');
   });
 });
@@ -400,38 +401,38 @@ describe('buildStandardTransaction', () => {
 
 describe('submitStandardTransaction', () => {
   function txnTransport() {
-    const quash = vi.fn((_req: QuashTXN) => ({}));
-    const impl: Partial<ServiceImpl<typeof TXNService>> = { quash };
+    const revoke = vi.fn((_req: RevokeTXN) => ({}));
+    const impl: Partial<ServiceImpl<typeof TXNService>> = { revoke };
     const transport = createRouterTransport(({ service }) => { service(TXNService, impl); });
-    return { transport, quash };
+    return { transport, revoke };
   }
 
   it('rejects an unsigned transaction without any network call', async () => {
-    const { transport, quash } = txnTransport();
-    const txn = await buildQuash();
+    const { transport, revoke } = txnTransport();
+    const txn = await buildRevoke();
     await expect(submitStandardTransaction(txn, { transport }))
       .rejects.toThrow('Transaction must be signed before submission (missing signature or hash)');
 
-    const hashOnly = await buildQuash();
+    const hashOnly = await buildRevoke();
     hashOnly.base!.hash = new Uint8Array(32);
     await expect(submitStandardTransaction(hashOnly, { transport })).rejects.toThrow(/must be signed/);
 
-    const sigOnly = await buildQuash();
+    const sigOnly = await buildRevoke();
     sigOnly.base!.signature = new Uint8Array(64);
     await expect(submitStandardTransaction(sigOnly, { transport })).rejects.toThrow(/must be signed/);
 
-    const noBase = create(QuashTXNSchema, {});
+    const noBase = create(RevokeTXNSchema, {});
     await expect(submitStandardTransaction(noBase, { transport })).rejects.toThrow(/must be signed/);
 
-    expect(quash).not.toHaveBeenCalled();
+    expect(revoke).not.toHaveBeenCalled();
   });
 
   it('submits a signed transaction and returns the hex hash', async () => {
-    const { transport, quash } = txnTransport();
-    const txn = signWithKey(await buildQuash(), alice.privateKey, alice.publicKey);
+    const { transport, revoke } = txnTransport();
+    const txn = signWithKey(await buildRevoke(), alice.privateKey, alice.publicKey);
     const hash = await submitStandardTransaction(txn, { transport });
     expect(hash).toBe(bytesToHex(txn.base!.hash!));
-    expect(quash).toHaveBeenCalledTimes(1);
-    expect(quash.mock.calls[0]![0].base?.signature).toEqual(txn.base!.signature);
+    expect(revoke).toHaveBeenCalledTimes(1);
+    expect(revoke.mock.calls[0]![0].base?.signature).toEqual(txn.base!.signature);
   });
 });

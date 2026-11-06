@@ -255,6 +255,7 @@ describe('ValidatorQueryClient', () => {
     });
 
     it.each([
+      [Code.PermissionDenied, 'PERMISSION_DENIED'],
       [Code.NotFound, 'NOT_FOUND'],
       [Code.Unauthenticated, 'UNAUTHENTICATED'],
       [Code.InvalidArgument, 'INVALID_ARGUMENT']

@@ -67,7 +67,7 @@ function unsignedCoin(withAuth = true): CoinTXN {
     nonce: 1n,
     feeAmountParts: '10',
     timestamp: OFFLINE.timestamp
-  });
+  }, 'kal_txn.CoinTXN');
   return create(CoinTXNSchema, {
     base,
     contractId: KALVORA_NATIVE_TOKEN,
@@ -308,15 +308,15 @@ describe('signCoinTXN / signCoinTXNWithKeys', () => {
   });
 
   // Regression: previously fixed bug (see CHANGELOG 1.0.0).
-  it('attaches signatures when the CoinTXN has no auth yet (signCoinTXNWithKeys)', () => {
+  it('rejects missing Coin authorization slots before signing with keys', () => {
     const coin = unsignedCoin(false);
-    signCoinTXNWithKeys(coin, [{ publicKey: alice.publicKey, privateKey: alice.privateKey }]);
-    expect(coin.auth?.signature).toHaveLength(1);
+    expect(() => signCoinTXNWithKeys(coin, [{ publicKey: alice.publicKey, privateKey: alice.privateKey }]))
+      .toThrow('auth public keys and nonce slots must be populated before signing');
   });
 
-  it('attaches signatures when the CoinTXN has no auth yet (signCoinTXN)', async () => {
+  it('rejects missing Coin authorization slots before calling an external signer', async () => {
     const coin = unsignedCoin(false);
-    await signCoinTXN(coin, [aliceSigner]);
-    expect(coin.auth?.signature).toHaveLength(1);
+    await expect(signCoinTXN(coin, [aliceSigner]))
+      .rejects.toThrow('auth public keys and nonce slots must be populated before signing');
   });
 });

@@ -360,8 +360,13 @@ describe('toTransactionResult', () => {
   });
 
   it('throws on a malformed fee string', () => {
-    const raw = create(TXNStatusFeesSchema, { txnHash: hash32(1), baseFees: '1.5' });
+    const raw = create(TXNStatusFeesSchema, { txnHash: hash32(1), status: TXN_STATUS.OK, baseFees: '1.5' });
     expect(() => toTransactionResult(raw)).toThrow('baseFees is not an unsigned integer');
+  });
+
+  it('requires explicit status presence even when the enum default is OK', () => {
+    const raw = create(TXNStatusFeesSchema, { txnHash: hash32(1) });
+    expect(() => toTransactionResult(raw)).toThrow(/status is missing/u);
   });
 });
 
@@ -384,6 +389,18 @@ describe('findTransactionResult', () => {
     expect(findTransactionResult(block, hex32(0x02))).toBeUndefined(); // tx present but no result record
     expect(findTransactionResult(block, hex32(0x99))).toBeUndefined();
     expect(findTransactionResult(create(BlockSchema, {}), hex32(0x01))).toBeUndefined();
+  });
+
+  it('ignores hash-only rows and finds a later receipt with an explicit status', () => {
+    const incomplete = create(BlockSchema, {
+      transactions: { txnFeesAndStatus: [{ txnHash: hash32(1) }] }
+    });
+    expect(findTransactionResult(incomplete, hex32(1))).toBeUndefined();
+    expect(summarizeBlock(incomplete).results).toEqual([]);
+    incomplete.transactions!.txnFeesAndStatus.push(create(TXNStatusFeesSchema, {
+      txnHash: hash32(1), status: TXN_STATUS.OK
+    }));
+    expect(findTransactionResult(incomplete, hex32(1))?.success).toBe(true);
   });
 });
 

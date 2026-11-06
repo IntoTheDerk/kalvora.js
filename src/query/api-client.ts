@@ -13,7 +13,7 @@
  * | hashes         | hex string                | lower-case hex string         |
  * | heights/nonces | `bigint \| number \| string` | `bigint`                   |
  *
- * Every failed call throws {@link KalvoraRpcError}. Use `.raw` for direct
+ * Failed RPCs throw {@link KalvoraRpcError}. Use `.raw` for direct
  * protobuf access when you need a field this client does not surface.
  *
  * @example
@@ -80,6 +80,7 @@ import type { GRPCConfig } from '../types/index.js';
 import {
   decodeContractSupply,
   findTransactionResult,
+  listBlockTransactions,
   parseUintString,
   type ContractSupply,
   type TransactionResult
@@ -268,7 +269,10 @@ export interface WaitForTransactionOptions {
   signal?: AbortSignal;
 }
 
-/** Result of {@link KalvoraQueryClient.waitForTransaction}. */
+/**
+ * Processing receipt returned by {@link KalvoraQueryClient.waitForTransaction}.
+ * The historical type name does not imply that finality evidence was verified.
+ */
 export interface ConfirmedTransaction extends TransactionResult {
   /** Height of the block that contains the transaction. */
   blockHeight: bigint;
@@ -319,6 +323,15 @@ function toPublicKey(publicKey: string | PublicKey): PublicKey {
 
 function isNotFound(error: unknown): boolean {
   return typeof error === 'object' && error !== null && (error as { code?: unknown }).code === 5;
+}
+
+class IncompleteTransactionReceiptError extends Error {
+  readonly isRetryable = true;
+
+  constructor() {
+    super('Transaction processing receipt is incomplete; retry the same block');
+    this.name = 'IncompleteTransactionReceiptError';
+  }
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {
@@ -641,15 +654,25 @@ export class KalvoraQueryClient {
    * Look up a transaction's processing result in a specific block.
    *
    * @returns The result, or `undefined` if the block does not contain the hash
+   * @throws Error named `IncompleteTransactionReceiptError` with `isRetryable: true`
+   * when the hash is present without an explicit processing status. Retry the same height.
    */
   async getTransactionResult(txnHash: string, blockHeight: bigint | number | string): Promise<TransactionResult | undefined> {
     const block = await this.getBlock({ height: blockHeight });
-    return findTransactionResult(block, txnHash);
+    const result = findTransactionResult(block, txnHash);
+    if (result) return result;
+    const wanted = txnHash.toLowerCase().replace(/^0x/u, '');
+    if (block.transactions?.txnFeesAndStatus.some(entry => bytesToHex(entry.txnHash) === wanted)
+      || listBlockTransactions(block).some(entry => entry.hash === wanted)) {
+      throw new IncompleteTransactionReceiptError();
+    }
+    return undefined;
   }
 
   /**
-   * Wait until a transaction is included in a block, scanning forward from
-   * `fromHeight`.
+   * Wait until a transaction has an explicit processing receipt in a block, scanning forward from
+   * `fromHeight`. A matching hash without a status is retried at the same height.
+   * Verify the block's finality evidence separately before treating it as confirmed.
    *
    * @param txnHash - Hex transaction hash (as returned by `send*` functions)
    * @throws Error on timeout or abort
@@ -667,23 +690,26 @@ export class KalvoraQueryClient {
     const pollIntervalMs = options.pollIntervalMs ?? 2_000;
     const deadline = Date.now() + timeoutMs;
     let height = parseUint64(options.fromHeight, 'fromHeight');
+    const timeoutError = (): Error => new Error(
+      `Timed out after ${timeoutMs} ms waiting for transaction ${txnHash} (searched up to height ${height - 1n})`
+    );
 
     for (;;) {
       if (options.signal?.aborted) throw new Error('Aborted');
-      let block: Block | undefined;
+      if (Date.now() >= deadline) throw timeoutError();
       try {
-        block = await this.getBlock({ height });
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
-      }
-      if (block) {
-        const result = findTransactionResult(block, txnHash);
+        const result = await this.getTransactionResult(txnHash, height);
+        if (options.signal?.aborted) throw new Error('Aborted');
+        if (Date.now() >= deadline) throw timeoutError();
         if (result) return { ...result, blockHeight: height };
         height += 1n;
         continue;
+      } catch (error) {
+        if (!isNotFound(error) && !(error instanceof IncompleteTransactionReceiptError)) throw error;
       }
+      if (options.signal?.aborted) throw new Error('Aborted');
       if (Date.now() + pollIntervalMs > deadline) {
-        throw new Error(`Timed out after ${timeoutMs} ms waiting for transaction ${txnHash} (searched up to height ${height - 1n})`);
+        throw timeoutError();
       }
       await sleep(pollIntervalMs, options.signal);
     }
@@ -722,7 +748,9 @@ export class KalvoraQueryClient {
   // --------------------------------------------------------------------------
 
   /**
-   * Events emitted by a smart contract since a point in time.
+   * Events emitted by a smart contract since a point in time, using the
+   * legacy all-or-error query (at most 256 matching events). This helper does
+   * not use the new authenticated cursor paging protocol.
    *
    * @param smartContractId - Smart contract name
    * @param since - Only return events at or after this time (default: all)
@@ -755,7 +783,9 @@ export class KalvoraQueryClient {
   // --------------------------------------------------------------------------
 
   /**
-   * Read a raw validator database record.
+   * Read a raw, uncertified diagnostic validator database record. This is
+   * not certified history or proof of committed state. The raw RPC exposes
+   * the accompanying `diagnosticUnverified` flag.
    *
    * Values are validator-internal encodings that differ per table (plain
    * decimal strings, binary protobuf, or protobuf text format). Prefer the

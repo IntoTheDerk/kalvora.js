@@ -341,6 +341,7 @@ export default [
     ignores: [
       'node_modules/**',
       'dist/**',
+      'floorplan/**',
       'proto/generated/**',
       'coverage/**',
       'docs/api/**',

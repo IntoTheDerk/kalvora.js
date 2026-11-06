@@ -12,3 +12,5 @@ export {
   type BuildSmartContractExecuteOptions,
   ParamType
 } from './transaction.js';
+
+export type { SmartContractAllowanceInput } from '../shared/allowances.js';

@@ -50,3 +50,6 @@ export {
   UniversalFeeCalculator,
   type FeeConfigHelper
 } from './src/shared/fee-calculators/universal-fee-calculator.js';
+
+// Trusted network pinning uses the same context as the root ESM entry.
+export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './src/sign/context.js';

@@ -21,7 +21,6 @@ import type {
   NFTTXN,
   ContractUpdateTXN,
   DelegatedTXN,
-  QuashTXN,
   RevokeTXN,
   ComplianceTXN,
   BurnSBTTXN,
@@ -83,7 +82,6 @@ export type TransactionMessage =
   | NFTTXN
   | ContractUpdateTXN
   | DelegatedTXN
-  | QuashTXN
   | RevokeTXN
   | ComplianceTXN
   | BurnSBTTXN
@@ -249,7 +247,6 @@ function extractTransactionTypeFromProtoObject(protoObject: TransactionMessage):
     if (typeName === 'kal_txn.ProposalResult') return TRANSACTION_TYPE.PROPOSAL_RESULT_TYPE;
     if (typeName === 'kal_txn.DelegatedTXN') return TRANSACTION_TYPE.DELEGATED_VOTING_TYPE;
     if (typeName === 'kal_txn.RevokeTXN') return TRANSACTION_TYPE.REVOKE_TYPE;
-    if (typeName === 'kal_txn.QuashTXN') return TRANSACTION_TYPE.QUASH_TYPE;
     if (typeName === 'kal_txn.ComplianceTXN') return TRANSACTION_TYPE.COMPLIANCE_TYPE;
     if (typeName === 'kal_txn.BurnSBTTXN') return TRANSACTION_TYPE.SBT_BURN_TYPE;
     if (typeName === 'kal_txn.RequiredVersion') return TRANSACTION_TYPE.REQUIRED_VERSION;
@@ -484,15 +481,11 @@ function calculateContractFee(
       
       // Get the current token rate for converting transaction amount to USD
       const currentTokenInfo = tokenInfoMap?.get(contractId);
-      if (!currentTokenInfo?.rate) {
+      const sameTokenPercentage = contractFeeInfo.contractFeeType === CONTRACT_FEE_TYPE.PERCENTAGE && contractFeeId === contractId;
+      if (!currentTokenInfo || (!currentTokenInfo.rate && !sameTokenPercentage)) {
         throw new Error(`Exchange rate not available for contract ${contractId}`);
       }
       
-      // Calculate total transaction amount
-      const outputAmounts = outputTransfers.map((o: { amount: string | number }) => toDecimal(o.amount));
-      const totalTransactionAmountInSmallestUnits = outputAmounts.reduce((sum: Decimal, amount: Decimal) => {
-        return sum.add(amount);
-      }, new Decimal(0));
       let denominationDecimals: number;
       if (currentTokenInfo.denomination) {
         denominationDecimals = getDecimalPlacesFromDenomination(currentTokenInfo.denomination);
@@ -501,11 +494,7 @@ function calculateContractFee(
         denominationDecimals = getDecimalPlacesFromDenomination(fallbackDenomination);
       }
       
-      // Convert smallest units to USD value
-      // Formula: ((smallest_units / 10^denomination_decimals) * rate) / 1e18 = USD value
-      const transactionAmountInTokenUnits = toDecimal(totalTransactionAmountInSmallestUnits).div(new Decimal(10).pow(denominationDecimals));
-      const rateDecimal = toDecimal(currentTokenInfo.rate);
-      const usdValueScaled = transactionAmountInTokenUnits.mul(rateDecimal);
+      const rateDecimal = toDecimal(currentTokenInfo.rate || '0');
       
       // Helper function to get fee token info and decimals
       const getFeeTokenInfo = (feeContractId: string) => {
@@ -552,20 +541,40 @@ function calculateContractFee(
         
         transactionAmount = convertUsdToFeeTokenSmallestUnits(feeAmountDecimal, contractFeeId);        
       } else if (contractFeeInfo.contractFeeType === CONTRACT_FEE_TYPE.PERCENTAGE){
-        // Percentage fee - contractFeeInfo.fee is in smallest units where 1e18 = 100%
-        const feePercentageDecimal = toDecimal(contractFeeInfo.fee);
-        
+        // Match contract_fee_math::percentage with widened integer arithmetic.
+        // Convert the full fraction to payment-token parts before rounding.
+        const maxUint256 = (1n << 256n) - 1n;
+        const unsigned = (value: string, field: string): bigint => {
+          if (!/^\d+$/u.test(value)) throw new Error(`${field} must be a decimal uint256`);
+          const parsed = BigInt(value);
+          if (parsed > maxUint256) throw new Error(`${field} must fit in uint256`);
+          return parsed;
+        };
+        const positive = (value: string, field: string): bigint => {
+          const parsed = unsigned(value, field);
+          if (parsed === 0n) throw new Error(`${field} must be greater than zero`);
+          return parsed;
+        };
+        const amount = outputTransfers.reduce((sum, output) => sum + unsigned(output.amount, 'output amount'), 0n);
+        if (amount > maxUint256) throw new Error('Total transfer amount must fit in uint256');
+        const fraction = unsigned(contractFeeInfo.fee, 'percentage fee');
+        const scale = 1000000000000000000n;
+        const sourceDenomination = positive(currentTokenInfo.denomination || getDenominationFallback(contractId), 'source denomination');
+        let numerator = amount * fraction;
+        let denominator = scale;
         if (contractFeeId !== contractId) {
-          // Convert smallest units to percentage (1e18 = 100%), then calculate USD equivalent
-          const percentageValue = feePercentageDecimal.div(new Decimal(10).pow(18)).mul(100);
-          const percentageOfTransactionUSD = usdValueScaled.mul(percentageValue).div(100);
-          transactionAmount = convertUsdToFeeTokenSmallestUnits(percentageOfTransactionUSD, contractFeeId);
-        } else {
-          // Same currency - convert smallest units to percentage, then calculate directly
-          const percentageValue = feePercentageDecimal.div(new Decimal(10).pow(18)).mul(100);
-          const percentageOfTransaction = totalTransactionAmountInSmallestUnits.mul(percentageValue).div(100);
-          transactionAmount = percentageOfTransaction.floor().toString();
+          const paymentToken = tokenInfoMap?.get(contractFeeId);
+          if (!paymentToken) throw new Error(`Token info not found for fee contract ${contractFeeId}`);
+          const sourceRate = positive(currentTokenInfo.rate, 'source exchange rate');
+          const paymentRate = positive(paymentToken.rate, 'payment exchange rate');
+          const paymentDenomination = positive(paymentToken.denomination || getDenominationFallback(contractFeeId), 'payment denomination');
+          numerator *= sourceRate * paymentDenomination;
+          denominator *= sourceDenomination * paymentRate;
         }
+        let fee = numerator / denominator;
+        if (amount > 0n && fraction > 0n && fee === 0n) fee = 1n;
+        if (fee > maxUint256) throw new Error('Percentage contract fee must fit in uint256');
+        transactionAmount = fee.toString();
 
       } else if (contractFeeInfo.contractFeeType === CONTRACT_FEE_TYPE.NONE) {
         return;
@@ -583,9 +592,13 @@ function calculateContractFee(
 
     // Apply overestimation to fee
     if (overestimatePercent > 0) {
-      const overestimateMultiplier = new Decimal(100 + overestimatePercent).div(100);
-      const overestimatedFeeDecimal = toDecimal(transactionAmount).mul(overestimateMultiplier);
-      transactionAmount = overestimatedFeeDecimal.floor().toString();
+      const FeeDecimal = Decimal.clone({ precision: 100 });
+      const overestimateMultiplier = new FeeDecimal(100).add(overestimatePercent).div(100);
+      const overestimatedFeeDecimal = new FeeDecimal(transactionAmount).mul(overestimateMultiplier);
+      transactionAmount = overestimatedFeeDecimal.toFixed(0, Decimal.ROUND_DOWN);
+    }
+    if (contractFeeInfo?.contractFeeType === CONTRACT_FEE_TYPE.PERCENTAGE && BigInt(transactionAmount) >= (1n << 256n)) {
+      throw new Error('Percentage contract fee cap must fit in uint256');
     }
 
     // Add contract fee fields to protoObject for TRANSACTION_TYPE.COIN_TYPE

@@ -43,7 +43,6 @@ export type {
   NFTTXN,
   ContractUpdateTXN,
   DelegatedTXN,
-  QuashTXN,
   RevokeTXN,
   ComplianceTXN,
   BurnSBTTXN,

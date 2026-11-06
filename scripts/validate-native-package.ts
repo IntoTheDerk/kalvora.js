@@ -33,9 +33,10 @@ for (const name of ['@solana/web3.js', '@solana/spl-token', 'bigint-buffer', 'st
 }
 
 let input = ''; for await (const chunk of process.stdin) input += chunk;
-const vector = JSON.parse(input);
+const { vector, signedContextVector } = JSON.parse(input);
 Date.now = () => Date.parse('2026-07-25T09:22:00.000Z');
 const sdk = await import('kalvora.js/native');
+sdk.configureTransactionContext({ chainId: signedContextVector.chainIdHex });
 const wallet = await import('kalvora.js/wallet');
 assert.equal(wallet.generateAddressFromPublicKey(vector.publicKey), vector.constructionContext.walletAddress);
 const pair = await wallet.createWallet({ keyType: wallet.KEY_TYPE.ED25519, mnemonic: 'abandon '.repeat(11) + 'about' });
@@ -44,7 +45,8 @@ for (const name of ['KalvoraClient', 'KalvoraRpcError', 'isKalvoraRpcError', 'Rp
   'PROPOSAL_TYPE', 'PROPOSAL_PHASE', 'PRE_GOVERNANCE_OUTCOME', 'ProposalType',
   'buildTextGovernanceProposalTXN', 'sendGovernanceProposalTXN', 'buildVoteTXN',
   'applyProposalStageFee', 'serializeTransaction', 'generateAddressFromPublicKey',
-  'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION']) {
+  'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION',
+  'configureTransactionContext', 'assertTransactionContext']) {
   assert.notEqual(sdk[name], undefined, name + ' is exported');
 }
 assert.equal(sdk.VERSION, JSON.parse(readFileSync('node_modules/kalvora.js/package.json', 'utf8')).version);
@@ -67,7 +69,8 @@ const options = {
   feeAmountParts: vector.base.feeAmountParts
 };
 const proposal = await sdk.buildTextGovernanceProposalTXN(vector.input, vector.publicKey, options);
-assert.equal(Buffer.from(sdk.serializeTransaction(proposal).data, 'base64').toString('hex'), vector.expectedProtobufHex);
+assert.equal(Buffer.from(sdk.serializeTransaction(proposal).data, 'base64').toString('hex'), signedContextVector.expectedProtobufHex);
+sdk.assertTransactionContext(proposal);
 const body = String.fromCharCode(10, 9) + 'const café = "公共";  ' + String.fromCharCode(10, 10);
 const authored = await sdk.buildTextGovernanceProposalTXN({ ...vector.input, body }, vector.publicKey, options);
 assert.equal(sdk.deserializeTransaction(sdk.serializeTransaction(authored)).body, body);
@@ -148,7 +151,7 @@ export async function validateNativePackage(projectRoot: string): Promise<void> 
       env: { ...process.env, npm_config_include: ['dev', 'peer', 'optional'].join('\n\n') }
     });
     writeFileSync(join(consumer, 'consumer.ts'), `
-import { KalvoraClient, UniversalFeeCalculator, VERSION } from 'kalvora.js/native';
+import { KalvoraClient, UniversalFeeCalculator, VERSION, configureTransactionContext } from 'kalvora.js/native';
 import { createWallet, KEY_TYPE, generateAddressFromPublicKey } from 'kalvora.js/wallet';
 import type { Wallet } from 'kalvora.js/wallet';
 const wallet: Promise<Wallet> = createWallet({ keyType: KEY_TYPE.ED25519, mnemonic: 'abandon '.repeat(11) + 'about' });
@@ -156,7 +159,9 @@ void wallet; void generateAddressFromPublicKey;
 import type { GRPCConfig, KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, ProposalConstructionContext,
   SerializedTransaction, GovernanceProposal, GovernanceVote, InstrumentContract,
   BuildTextGovernanceProposalTXNOptions, ProposalGovernanceType, TextGovernanceProposalInput,
-  BuildVoteTXNOptions, FeeConfigHelper } from 'kalvora.js/native';
+  BuildVoteTXNOptions, FeeConfigHelper, TransactionContext } from 'kalvora.js/native';
+const context: TransactionContext = { chainId: 'kal_proto' };
+configureTransactionContext(context);
 const config: GRPCConfig = { endpoint: 'http://fixture.invalid' };
 new KalvoraClient({ grpc: config });
 void UniversalFeeCalculator.calculateFee;
@@ -172,7 +177,10 @@ export type Consumer = [KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, Prop
       '--moduleResolution', 'nodenext', 'consumer.ts'], { cwd: consumer, stdio: 'inherit', timeout: 60_000 });
     const result = execFileSync(process.execPath, ['--input-type=module', '-e', runtimeCheck], {
       cwd: consumer, encoding: 'utf8', timeout: 60_000,
-      input: readFileSync(join(projectRoot, 'src/proposal/tests/fixtures/text-proposal-v1.json'), 'utf8')
+      input: JSON.stringify({
+        vector: JSON.parse(readFileSync(join(projectRoot, 'src/proposal/tests/fixtures/text-proposal-v1.json'), 'utf8')),
+        signedContextVector: JSON.parse(readFileSync(join(projectRoot, 'src/proposal/tests/fixtures/text-proposal-signed-context-v1.json'), 'utf8'))
+      })
     });
     console.log(result.trim());
 

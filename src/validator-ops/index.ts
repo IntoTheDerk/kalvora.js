@@ -7,6 +7,7 @@ export {
   sendValidatorHeartbeatTXN,
   sendValidatorRegistrationTXN,
   type GeneratedKeyPair,
+  type AttestationKeyInput,
   type ValidatorHeartbeatInput,
   type ValidatorInfoInput,
   type ValidatorOpsTXNOptions,

@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import * as root from '../../index.js';
 import * as native from '../../native.js';
+import signedContextVector from '../proposal/tests/fixtures/text-proposal-signed-context-v1.json';
 import vector from '../proposal/tests/fixtures/text-proposal-v1.json';
 import { UniversalFeeCalculator } from '../shared/fee-calculators/universal-fee-calculator.js';
 
@@ -14,6 +15,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  native.configureTransactionContext({ chainId: signedContextVector.chainIdHex });
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -24,7 +26,8 @@ describe('native public API', () => {
       'PROPOSAL_TYPE', 'PROPOSAL_PHASE', 'PRE_GOVERNANCE_OUTCOME', 'ProposalType',
       'buildTextGovernanceProposalTXN', 'sendGovernanceProposalTXN', 'buildVoteTXN',
       'applyProposalStageFee', 'serializeTransaction', 'generateAddressFromPublicKey',
-      'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION']) {
+      'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION',
+      'configureTransactionContext', 'assertTransactionContext']) {
       expect(native, name).toHaveProperty(name);
     }
     const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
@@ -65,9 +68,28 @@ describe('native public API', () => {
       expect(proposal.base?.signature).toBeUndefined();
       expect(proposal.base?.hash).toBeUndefined();
       if (body === vector.input.body) {
-        expect(Buffer.from(serialized.data, 'base64').toString('hex')).toBe(vector.expectedProtobufHex);
+        expect(Buffer.from(serialized.data, 'base64').toString('hex')).toBe(signedContextVector.expectedProtobufHex);
       }
     }
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it('requires a trusted pin and rejects changed signing intent through the native entry', async () => {
+    const build = () => native.buildVoteTXN(vector.input.contractId, 'ab'.repeat(32), vector.publicKey, {
+      support: true, nonce: '1', feeAmountParts: '101', timestamp: new Date(vector.base.timestamp)
+    });
+    native.configureTransactionContext(undefined);
+    await expect(build()).rejects.toThrow('Trusted chainId is required');
+    native.configureTransactionContext({ chainId: 'kal_proto' });
+    const vote = await build();
+    expect(vote.base?.chainId).toEqual(new TextEncoder().encode('kal_proto'));
+    expect(() => root.assertTransactionContext(vote)).not.toThrow();
+    expect(() => native.assertTransactionContext(vote, { chainId: 'kal_main' })).toThrow('trusted target chain');
+    vote.base!.signatureDomain = new TextEncoder().encode('KAL_PROPOSAL_RESULT_V1');
+    expect(() => native.assertTransactionContext(vote)).toThrow('signatureDomain');
+    vote.base!.signatureDomain = new TextEncoder().encode('KAL_USER_TXN_V1');
+    vote.base!.intendedType = root.TRANSACTION_TYPE.PROPOSAL_TYPE;
+    expect(() => native.assertTransactionContext(vote)).toThrow('intendedType');
     expect(fetch).not.toHaveBeenCalled();
   });
 

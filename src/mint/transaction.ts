@@ -65,8 +65,7 @@ export interface MintTXNInput {
  * On-chain, a mint transaction increases the circulating supply of
  * `contractId` by `amount` parts and credits them to `recipientAddress`.
  * Validators accept it only if the signer's public key is a `RestrictedKey`
- * of the contract with `mint = true` (restricted keys with a `time_delay`
- * cause the mint to be held pending and quashable until the delay elapses).
+ * of the contract with `mint = true`.
  *
  * Unless both `options.nonce` and `options.feeAmountParts` are set, this
  * function queries the network for the contract type, the signer's next

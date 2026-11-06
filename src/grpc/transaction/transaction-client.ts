@@ -78,10 +78,10 @@ export interface TransactionClient {
 /**
  * Maps protobuf `$typeName` → TXNService RPC method name.
  * 
- * All 19 TXNService methods are covered:
+ * All 18 TXNService methods are covered:
  *   Coin, Mint, ItemMint, Contract, GovernProposal, GovernVote,
  *   SmartContract, SmartContractExecute, SmartContractInstantiate,
- *   ExpenseRatio, NFT, ContractUpdate, DelegatedVoting, Quash,
+ *   ExpenseRatio, NFT, ContractUpdate, DelegatedVoting,
  *   Revoke, Compliance, BurnSBT, Allowance, ProposalCancel
  */
 const TXN_TYPE_TO_RPC: Record<string, keyof Client<typeof TXNService>> = {
@@ -98,7 +98,6 @@ const TXN_TYPE_TO_RPC: Record<string, keyof Client<typeof TXNService>> = {
   'kal_txn.NFTTXN':                        'nFT',
   'kal_txn.ContractUpdateTXN':             'contractUpdate',
   'kal_txn.DelegatedTXN':                  'delegatedVoting',
-  'kal_txn.QuashTXN':                      'quash',
   'kal_txn.RevokeTXN':                     'revoke',
   'kal_txn.ComplianceTXN':                 'compliance',
   'kal_txn.BurnSBTTXN':                    'burnSBT',

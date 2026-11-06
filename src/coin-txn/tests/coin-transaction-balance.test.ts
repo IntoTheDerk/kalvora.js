@@ -16,10 +16,9 @@ import { createCoinTXN } from '../transaction.js';
 
 // Mock the gRPC dependencies
 vi.mock('../../api/validator/nonce/service.js', () => ({
-  getNonces: vi.fn().mockResolvedValue([
-    { toString: () => '1' },
-    { toString: () => '2' }
-  ])
+  getNonces: vi.fn(async (addresses: string[]) =>
+    addresses.map((_address, index) => ({ toString: () => String(index + 1) }))
+  )
 }));
 
 vi.mock('../../shared/fee-calculators/universal-fee-calculator.js', () => ({

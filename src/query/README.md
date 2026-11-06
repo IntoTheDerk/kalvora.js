@@ -29,7 +29,8 @@ Typed, read-only access to Kalvora network state. Full guide:
 | `SmartContractEventsSearch` | `searchSmartContractEvents` |
 | `Database` | `getDatabaseValue`, `getCurrencyEquivalent` (`CURRENCY_EQUIVALENTS`), `getContractSupply` (`CONTRACT_SUPPLY`) |
 | Validator `Nonce`, `Balance` | `ValidatorQueryClient.getNonce`, `.getBalance` |
-| Validator `GetCheckpointInfo`, `SyncValidatorList` | signed requests via a `KalvoraSigner` |
+| Validator `SyncValidatorList` | signed request via a `KalvoraSigner` |
+| Validator `GetCheckpointInfo` | deprecated; clean-genesis nodes return `PERMISSION_DENIED` |
 | Guardian `GetPayload`, `SearchPayload`, `GetPriceData`, `GetMintInfo` | `GuardianQueryClient` methods |
 
 Not wrapped (not client-facing): `SmartContractActivityRequest`,
@@ -47,8 +48,38 @@ Pure functions usable on data from any source: `summarizeBlock`,
 `formatScaled`, `parseUintString`, `USD_SCALE`. Pushed smart-contract events
 are checked with `acceptSmartContractEvent` and
 `verifySmartContractEventSignature`. `nextSmartContractEventSearchStart`
-pages `searchSmartContractEvents`. `itemContractDatabaseKey` builds the
+advances a timestamp filter; it is not a cursor or a guarantee of complete
+paging. `searchSmartContractEvents` uses legacy all-or-error mode, limited to
+256 matches. Authenticated cursor paging is available through `.raw` and
+requires verification of the response signature and exact request digest.
+`itemContractDatabaseKey` builds the
 `CONTRACT_ITEMS` key.
+
+Database reads are uncertified diagnostics, including values returned by the
+typed supply and currency-equivalent helpers. Public checkpoint metadata and
+downloads are disabled at clean genesis; recovery uses verified local snapshots
+and controlled operator access.
+
+Processing receipts require an explicitly present `TXNStatusFees.status`.
+`toTransactionResult` rejects rows without it; `findTransactionResult`
+and `summarizeBlock` omit such incomplete rows. These pure decoders do not
+distinguish an absent transaction from an incomplete receipt.
+
+`getTransactionResult(hash, height)` returns `undefined` only when neither a
+receipt row nor a transaction in that block contains the hash. If the hash is
+present but no matching receipt has an explicit status, it throws an `Error`
+named `IncompleteTransactionReceiptError`, with `isRetryable: true` and the
+fixed message `Transaction processing receipt is incomplete; retry the same block`.
+Callers maintaining a block cursor must retry that height on this error;
+advance only on `undefined`. This includes a transaction present without any
+receipt row. An explicit matching status takes precedence over incomplete rows.
+
+`waitForTransaction` retries incomplete receipts at the same height, subject
+to its polling interval, timeout and abort signal. It advances only when the
+hash is absent, and returns both explicit success and failure receipts. It does
+not broadcast or resubmit transactions. An RPC acceptance or a processing
+receipt alone does not establish finality: verify
+the block's finality evidence before treating the transaction as confirmed.
 
 ## Verified behaviour (live node, 2026-09)
 
