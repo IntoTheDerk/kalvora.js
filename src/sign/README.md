@@ -101,7 +101,7 @@ signature empty. `getSponsorSigningBytes(txn, context?)` clears only
 signature, the sponsor key and nonce, and the signed transaction context:
 
 ```typescript
-import { getSponsorSigningBytes, finalizeTransactionHash } from 'kalvora.js';
+import { getSponsorSigningBytes, finalizeTransactionHash } from 'kalvora.js/native';
 
 // signed.base.feePayer has already been populated with sponsor key and nonce.
 const bytes = getSponsorSigningBytes(signed, trustedContext);
@@ -112,6 +112,24 @@ finalizeTransactionHash(signed, trustedContext);
 Do not call a user-signing helper after adding the sponsor: those helpers
 remove the sponsor authorization to prepare a fresh user signature. A changed
 user transaction requires both parties to sign again.
+
+These helpers support an explicit manual sequence, not turnkey sponsored
+proposal or vote submission. The governance builders do not attach a sponsor
+or fetch its nonce. Their automatic fee estimate lacks verified sponsor
+overhead: it is calculated before the sponsor envelope is attached, and the
+estimator does not explicitly account for the sponsor key/signature. Do not
+treat that estimate as a complete sponsored fee quote. Any manually supplied
+fee must be established against the validator contract before user signing;
+changing the fee later requires both parties to sign again.
+
+Offline tests establish canonical bytes, both signatures and transport
+preservation for proposals/votes. They do not establish validator eligibility,
+which fee components the sponsor pays, nonce consumption, or escrow refunds.
+`getSponsorSigningBytes` checks context and signature presence, not signature
+validity, balances or replay state. The receipt's optional
+`result.raw.proposalEscrowPayerWallet` preserves the reported payer bytes;
+absence does not identify a payer. Fee-token authorization, delegation fee
+allowances and interface-fee recipients are separate from signed sponsorship.
 
 ## Validator registration
 

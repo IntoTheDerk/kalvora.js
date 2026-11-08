@@ -65,3 +65,4 @@ export {
 
 // Trusted network pinning uses the same context as the root ESM entry.
 export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './src/sign/context.js';
+export { getSponsorSigningBytes, finalizeTransactionHash } from './src/sign/finalize.js';

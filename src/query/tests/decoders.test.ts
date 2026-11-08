@@ -1,7 +1,7 @@
 /**
  * Unit tests for the pure query decoders (no network access).
  */
-import { create } from '@bufbuild/protobuf';
+import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { describe, expect, it } from 'vitest';
 
 import { TRANSACTION_TYPE, TXN_STATUS, TXNStatusFeesSchema } from '../../../proto/generated/txn_pb.js';
@@ -318,6 +318,20 @@ describe('listBlockTransactions', () => {
 });
 
 describe('toTransactionResult', () => {
+  it.each([undefined, new Uint8Array(32).fill(0x42)])('preserves optional escrow payer bytes through wire decoding and block lookup (%s)', payer => {
+    const raw = create(TXNStatusFeesSchema, {
+      txnHash: hash32(0x07), status: TXN_STATUS.OK, proposalIdentifier: 17n,
+      ...(payer === undefined ? {} : { proposalEscrowPayerWallet: payer })
+    });
+    const decoded = fromBinary(TXNStatusFeesSchema, toBinary(TXNStatusFeesSchema, raw));
+    const result = toTransactionResult(decoded);
+    expect(result.raw.proposalEscrowPayerWallet).toEqual(payer);
+    expect(result.raw).toBe(decoded);
+    expect(result.proposalIdentifier).toBe(17n);
+    const block = create(BlockSchema, { transactions: { txnFeesAndStatus: [decoded] } });
+    expect(findTransactionResult(block, hex32(0x07))?.raw.proposalEscrowPayerWallet).toEqual(payer);
+  });
+
   it('maps an OK record without optional fields', () => {
     const raw = create(TXNStatusFeesSchema, {
       txnHash: hash32(0xee),

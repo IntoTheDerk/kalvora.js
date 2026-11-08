@@ -37,6 +37,10 @@ signing, Markdown round trips and explicit receipt status against code when
 refreshing. Query lookups distinguish an absent hash from an incomplete receipt;
 polling retains the height until an explicit status, timeout or abort. Pure
 decoders still omit incomplete rows; see the query reference above.
+Native sponsor-byte and final-hash helpers support the explicit two-signature
+sequence documented in the signing reference. Offline governance tests check
+signature binding, transport and raw escrow-payer preservation; sponsor fee
+overhead, validator eligibility and debit/refund rules remain unverified.
 A map does not verify live deployment or finality. The scanner's
 secret warning for `KALVORA_NATIVE_TOKEN` is a false positive: it is the public
 native mint identifier, not a credential.

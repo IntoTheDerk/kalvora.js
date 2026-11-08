@@ -28,7 +28,8 @@ describe('native public API', () => {
       'buildTextGovernanceProposalTXN', 'sendGovernanceProposalTXN', 'buildVoteTXN',
       'applyProposalStageFee', 'serializeTransaction', 'generateAddressFromPublicKey',
       'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION',
-      'configureTransactionContext', 'assertTransactionContext']) {
+      'configureTransactionContext', 'assertTransactionContext',
+      'getSponsorSigningBytes', 'finalizeTransactionHash']) {
       expect(native, name).toHaveProperty(name);
     }
     const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));

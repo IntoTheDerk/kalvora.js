@@ -46,9 +46,13 @@ for (const name of ['KalvoraClient', 'KalvoraRpcError', 'isKalvoraRpcError', 'Rp
   'buildTextGovernanceProposalTXN', 'sendGovernanceProposalTXN', 'buildVoteTXN',
   'applyProposalStageFee', 'serializeTransaction', 'generateAddressFromPublicKey',
   'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION',
-  'configureTransactionContext', 'assertTransactionContext', 'buildDelegatedTXN',
+  'configureTransactionContext', 'assertTransactionContext', 'getSponsorSigningBytes',
+  'finalizeTransactionHash', 'buildDelegatedTXN',
   'createDelegatedTXN', 'sendDelegatedTXN', 'DELEGATE_PRIORITY_MIN', 'DELEGATE_PRIORITY_MAX']) {
   assert.notEqual(sdk[name], undefined, name + ' is exported');
+}
+for (const name of ['getSponsorSigningBytes', 'finalizeTransactionHash']) {
+  assert.equal(typeof sdk[name], 'function', name + ' is callable');
 }
 assert.equal(sdk.VERSION, JSON.parse(readFileSync('node_modules/kalvora.js/package.json', 'utf8')).version);
 const { createRouterTransport } = await import('@connectrpc/connect');
@@ -163,6 +167,7 @@ export async function validateNativePackage(projectRoot: string): Promise<void> 
     });
     writeFileSync(join(consumer, 'consumer.ts'), `
 import { KalvoraClient, UniversalFeeCalculator, VERSION, configureTransactionContext,
+  getSponsorSigningBytes, finalizeTransactionHash,
   buildDelegatedTXN, createDelegatedTXN, sendDelegatedTXN, DELEGATE_PRIORITY_MIN, DELEGATE_PRIORITY_MAX } from 'kalvora.js/native';
 import { createWallet, KEY_TYPE, generateAddressFromPublicKey } from 'kalvora.js/wallet';
 import type { Wallet } from 'kalvora.js/wallet';
@@ -175,6 +180,11 @@ import type { GRPCConfig, KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, Pr
   DelegatedInput, DelegateVoteInput, DelegateContractInput, DelegateFeesInput, DelegatedTXN } from 'kalvora.js/native';
 const buildAssignment: (input: DelegatedInput) => Promise<DelegatedTXN> = buildDelegatedTXN;
 void buildAssignment; void createDelegatedTXN; void sendDelegatedTXN;
+const sponsorProposal: (txn: GovernanceProposal, context?: TransactionContext) => Uint8Array = getSponsorSigningBytes;
+const sponsorVote: (txn: GovernanceVote, context?: TransactionContext) => Uint8Array = getSponsorSigningBytes;
+const finalizeProposal: (txn: GovernanceProposal, context?: TransactionContext) => GovernanceProposal = finalizeTransactionHash;
+const finalizeVote: (txn: GovernanceVote, context?: TransactionContext) => GovernanceVote = finalizeTransactionHash;
+void sponsorProposal; void sponsorVote; void finalizeProposal; void finalizeVote;
 const priorities: number[] = [DELEGATE_PRIORITY_MIN, DELEGATE_PRIORITY_MAX];
 void priorities;
 const context: TransactionContext = { chainId: 'kal_proto' };
