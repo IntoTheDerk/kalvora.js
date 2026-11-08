@@ -31,7 +31,19 @@ export {
 export { applyProposalStageFee } from './src/proposal/shape.js';
 export { buildVoteTXN, type BuildVoteTXNOptions } from './src/vote/transaction.js';
 export {
+  buildDelegatedTXN,
+  createDelegatedTXN,
+  sendDelegatedTXN,
+  DELEGATE_PRIORITY_MIN,
+  DELEGATE_PRIORITY_MAX,
+  type DelegateContractInput,
+  type DelegateVoteInput,
+  type DelegateFeesInput,
+  type DelegatedInput
+} from './src/delegated-voting/index.js';
+export {
   ProposalType,
+  type DelegatedTXN,
   type GovernanceProposal,
   type GovernanceVote,
   type InstrumentContract

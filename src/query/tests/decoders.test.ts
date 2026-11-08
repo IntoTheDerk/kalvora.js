@@ -270,6 +270,22 @@ describe('decodeContractSupply', () => {
 // ----------------------------------------------------------------------------
 
 describe('listBlockTransactions', () => {
+  it('preserves delegation assignment identity and raw delegated receipt data', () => {
+    const block = create(BlockSchema, { transactions: {
+      delegatedVotingTxns: [{ base: { hash: hash32(0x08) }, delegateVotes: [{
+        address: hash32(0x09), contracts: [{ contractId: 'fixture-contract', priority: 1 }]
+      }] }],
+      txnFeesAndStatus: [{ txnHash: hash32(0x08), status: TXN_STATUS.OK,
+        delegatedData: [{ address: hash32(0x09), fee: { contractId: 'fixture-fee', amount: '9007199254740993' } }] }]
+    } });
+    const [assignment] = listBlockTransactions(block);
+    expect(assignment).toMatchObject({ list: 'delegatedVotingTxns', type: TRANSACTION_TYPE.DELEGATED_VOTING_TYPE, hash: hex32(0x08) });
+    expect(assignment!.txn).toBe(block.transactions!.delegatedVotingTxns[0]);
+    const result = findTransactionResult(block, hex32(0x08));
+    expect(result?.raw.delegatedData).toEqual(block.transactions!.txnFeesAndStatus[0]!.delegatedData);
+    expect(result?.raw.delegatedData[0]?.fee?.amount).toBe('9007199254740993');
+  });
+
   it('flattens every list in TXNS field order with types and hex hashes', () => {
     const txns = listBlockTransactions(makeBlock());
     expect(txns.map(t => [t.list, t.type, t.hash])).toEqual([

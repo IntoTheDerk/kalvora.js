@@ -4,11 +4,10 @@
  * Builds, signs, and submits Kalvora delegated-voting transactions
  * (`TXNService.DelegatedVoting`).
  *
- * A `DelegatedTXN` lets the signer (the "delegator") hand its governance
- * voting power to one or more delegate wallets, per voting contract, with a
- * priority for each (delegate, contract) pair. It can also carry
- * `DelegateFees` entries that pre-authorize how much of a fee token the
- * delegator is willing to spend on fees incurred on its behalf by delegates.
+ * A `DelegatedTXN` encodes contract-scoped delegate assignments and optional
+ * fee authorizations, not a proposal ballot. Effective voting, priority and
+ * replacement/removal semantics require validator/indexer confirmation; see
+ * this module's README. Construction and signing do not establish those rules.
  *
  * @module delegated-voting/transaction
  */
@@ -43,10 +42,9 @@ export interface DelegateContractInput {
   /** Contract whose governance votes are delegated, e.g. `KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao`. */
   contractId: string;
   /**
-   * Priority of this delegate for `contractId` (protobuf `int32`). When
-   * several delegates are configured for the same contract, validators use
-   * the priority to decide whose vote counts; the validator stores it as a
-   * `uint32`, so prefer non-negative values.
+   * Wire priority for this delegate/contract pair (protobuf `int32`).
+   * Validator state schemas use `uint32`; ordering and negative-value
+   * semantics are not established by this SDK.
    */
   priority: number;
 }
@@ -182,10 +180,9 @@ function buildDelegatedFields(input: DelegatedInput): {
 /**
  * Build an **unsigned** `DelegatedTXN`.
  *
- * On-chain semantics: for every `delegateVotes[i]`, the signer delegates its
- * governance voting power in each listed contract to `address`, ranked by
- * `priority`. Optional `delegateFees` entries authorize up to `authAmount`
- * parts of each fee token for fees incurred through delegation.
+ * Encodes each delegate address, contract/priority pair and optional fee
+ * authorization. It contains no proposal ID or ballot choice. The validator
+ * determines effective voting and fee behavior; see the README's open semantics.
  *
  * `DelegatedTXN` is not bound to a single contract, so the base-fee lookup
  * uses no contract ID. Pass `options.nonce` and `options.feeAmountParts` for

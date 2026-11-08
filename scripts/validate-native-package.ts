@@ -46,7 +46,8 @@ for (const name of ['KalvoraClient', 'KalvoraRpcError', 'isKalvoraRpcError', 'Rp
   'buildTextGovernanceProposalTXN', 'sendGovernanceProposalTXN', 'buildVoteTXN',
   'applyProposalStageFee', 'serializeTransaction', 'generateAddressFromPublicKey',
   'isValidContractId', 'isCanonicalContractId', 'UniversalFeeCalculator', 'VERSION',
-  'configureTransactionContext', 'assertTransactionContext']) {
+  'configureTransactionContext', 'assertTransactionContext', 'buildDelegatedTXN',
+  'createDelegatedTXN', 'sendDelegatedTXN', 'DELEGATE_PRIORITY_MIN', 'DELEGATE_PRIORITY_MAX']) {
   assert.notEqual(sdk[name], undefined, name + ' is exported');
 }
 assert.equal(sdk.VERSION, JSON.parse(readFileSync('node_modules/kalvora.js/package.json', 'utf8')).version);
@@ -71,6 +72,16 @@ const options = {
 const proposal = await sdk.buildTextGovernanceProposalTXN(vector.input, vector.publicKey, options);
 assert.equal(Buffer.from(sdk.serializeTransaction(proposal).data, 'base64').toString('hex'), signedContextVector.expectedProtobufHex);
 sdk.assertTransactionContext(proposal);
+const assignment = await sdk.buildDelegatedTXN({
+  publicKey: vector.publicKey,
+  delegateVotes: [{ address: pair.address, contracts: [{ contractId: vector.input.contractId, priority: 1 }] }]
+}, { nonce: '9007199254740993', feeAmountParts: '101', timestamp: options.timestamp });
+sdk.assertTransactionContext(assignment);
+const decodedAssignment = sdk.deserializeTransaction(sdk.serializeTransaction(assignment));
+assert.deepEqual(decodedAssignment, assignment);
+assert.equal(assignment.base.nonce, 9007199254740993n);
+assert.equal(assignment.base.signature, undefined);
+assert.equal(assignment.base.hash, undefined);
 const body = String.fromCharCode(10, 9) + 'const café = "公共";  ' + String.fromCharCode(10, 10);
 const authored = await sdk.buildTextGovernanceProposalTXN({ ...vector.input, body }, vector.publicKey, options);
 assert.equal(sdk.deserializeTransaction(sdk.serializeTransaction(authored)).body, body);
@@ -151,7 +162,8 @@ export async function validateNativePackage(projectRoot: string): Promise<void> 
       env: { ...process.env, npm_config_include: ['dev', 'peer', 'optional'].join('\n\n') }
     });
     writeFileSync(join(consumer, 'consumer.ts'), `
-import { KalvoraClient, UniversalFeeCalculator, VERSION, configureTransactionContext } from 'kalvora.js/native';
+import { KalvoraClient, UniversalFeeCalculator, VERSION, configureTransactionContext,
+  buildDelegatedTXN, createDelegatedTXN, sendDelegatedTXN, DELEGATE_PRIORITY_MIN, DELEGATE_PRIORITY_MAX } from 'kalvora.js/native';
 import { createWallet, KEY_TYPE, generateAddressFromPublicKey } from 'kalvora.js/wallet';
 import type { Wallet } from 'kalvora.js/wallet';
 const wallet: Promise<Wallet> = createWallet({ keyType: KEY_TYPE.ED25519, mnemonic: 'abandon '.repeat(11) + 'about' });
@@ -159,7 +171,12 @@ void wallet; void generateAddressFromPublicKey;
 import type { GRPCConfig, KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, ProposalConstructionContext,
   SerializedTransaction, GovernanceProposal, GovernanceVote, InstrumentContract,
   BuildTextGovernanceProposalTXNOptions, ProposalGovernanceType, TextGovernanceProposalInput,
-  BuildVoteTXNOptions, FeeConfigHelper, TransactionContext } from 'kalvora.js/native';
+  BuildVoteTXNOptions, FeeConfigHelper, TransactionContext,
+  DelegatedInput, DelegateVoteInput, DelegateContractInput, DelegateFeesInput, DelegatedTXN } from 'kalvora.js/native';
+const buildAssignment: (input: DelegatedInput) => Promise<DelegatedTXN> = buildDelegatedTXN;
+void buildAssignment; void createDelegatedTXN; void sendDelegatedTXN;
+const priorities: number[] = [DELEGATE_PRIORITY_MIN, DELEGATE_PRIORITY_MAX];
+void priorities;
 const context: TransactionContext = { chainId: 'kal_proto' };
 configureTransactionContext(context);
 const config: GRPCConfig = { endpoint: 'http://fixture.invalid' };
@@ -170,7 +187,8 @@ void version;
 export type Consumer = [KalvoraClientOptions, KalvoraNetwork, TokenFeeInfo, ProposalConstructionContext,
   SerializedTransaction, GovernanceProposal, GovernanceVote, InstrumentContract,
   BuildTextGovernanceProposalTXNOptions, ProposalGovernanceType, TextGovernanceProposalInput,
-  BuildVoteTXNOptions, FeeConfigHelper];
+  BuildVoteTXNOptions, FeeConfigHelper, DelegatedInput, DelegateVoteInput,
+  DelegateContractInput, DelegateFeesInput, DelegatedTXN];
 `);
     execFileSync(process.execPath, [join(projectRoot, 'node_modules/typescript/bin/tsc'),
       '--noEmit', '--strict', '--target', 'es2020', '--module', 'nodenext',

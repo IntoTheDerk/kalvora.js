@@ -28,6 +28,7 @@ Canonical references: [SDK architecture](../guides/architecture.md),
 [installation and native exports](../../README.md),
 [Git preparation and validation](../../CONTRIBUTING.md),
 [proposal validation](../../src/proposal/README.md),
+[delegation assignment and unresolved semantics](../../src/delegated-voting/README.md),
 [trusted signing](../../src/sign/README.md), and
 [query/receipt semantics](../../src/query/README.md).
 

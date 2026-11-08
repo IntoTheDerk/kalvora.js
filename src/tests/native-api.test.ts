@@ -7,6 +7,7 @@ import * as native from '../../native.js';
 import signedContextVector from '../proposal/tests/fixtures/text-proposal-signed-context-v1.json';
 import vector from '../proposal/tests/fixtures/text-proposal-v1.json';
 import { UniversalFeeCalculator } from '../shared/fee-calculators/universal-fee-calculator.js';
+import { ED25519_TEST_KEYS } from '../test-utils/keys.test.js';
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -33,6 +34,27 @@ describe('native public API', () => {
     const pkg = JSON.parse(readFileSync(new URL('../../package.json', import.meta.url), 'utf8'));
     expect(native.VERSION).toBe(pkg.version);
     expect(native.VERSION).toBe(root.VERSION);
+  });
+
+  it('exposes existing delegation builders and preserves unsigned assignment bytes', async () => {
+    for (const name of ['buildDelegatedTXN', 'createDelegatedTXN', 'sendDelegatedTXN',
+      'DELEGATE_PRIORITY_MIN', 'DELEGATE_PRIORITY_MAX'] as const) {
+      expect(native[name]).toBe(root[name]);
+    }
+    const input: native.DelegatedInput = {
+      publicKey: vector.publicKey,
+      delegateVotes: [{ address: ED25519_TEST_KEYS.bob.address,
+        contracts: [{ contractId: vector.input.contractId, priority: 1 }] }]
+    };
+    const options = { nonce: '9007199254740993', feeAmountParts: '101', timestamp: new Date(vector.base.timestamp) };
+    const txn: native.DelegatedTXN = await native.buildDelegatedTXN(input, options);
+    const expected = await root.buildDelegatedTXN(input, options);
+    expect(native.serializeTransaction(txn)).toEqual(root.serializeTransaction(expected));
+    expect(native.deserializeTransaction(native.serializeTransaction(txn))).toEqual(txn);
+    expect(txn.base?.intendedType).toBe(root.TRANSACTION_TYPE.DELEGATED_VOTING_TYPE);
+    expect(txn.base?.signature).toBeUndefined();
+    expect(txn.base?.hash).toBeUndefined();
+    expect(fetch).not.toHaveBeenCalled();
   });
 
   it('re-exports existing root implementations and enums without bridge namespaces', () => {

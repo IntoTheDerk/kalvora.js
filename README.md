@@ -215,7 +215,8 @@ which exports the same functions.
 ### Native entry: `kalvora.js/native`
 
 `kalvora.js/native` is ESM-only and exports the existing native client,
-governance proposal/vote builders, proposal submission, stage-fee arithmetic,
+governance proposal/vote builders, delegation assignment build/create/send,
+proposal submission, stage-fee arithmetic,
 serialization, address and contract validation, RPC errors, enums, and their
 types and SDK `VERSION`. It also exposes `UniversalFeeCalculator` for callers
 supplying explicit native fee metadata. It has no Solana bridge import; network
