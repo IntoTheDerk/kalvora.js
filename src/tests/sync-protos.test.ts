@@ -1,8 +1,8 @@
 /**
  * `scripts/sync-protos.ts` tests.
  *
- * The script runs `main()` at import time (reading argv and possibly calling
- * `process.exit`), so it is exercised as a subprocess. Only `--check` mode is
+ * The script's CLI reads argv and may call `process.exit`, so it is exercised
+ * as a subprocess. Only `--check` mode is
  * used: the non-check mode writes into the repository's real `proto/` dir.
  *
  * Two source layouts are covered: the official flat release (`txn.proto`,
@@ -23,7 +23,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 const SCRIPT = join(ROOT, 'scripts', 'sync-protos.ts');
-const TSX = join(ROOT, 'node_modules', '.bin', 'tsx');
 const PROTO_DIR = join(ROOT, 'proto');
 
 /** Indexer path → SDK file name (mirrors the script's FILES table). */
@@ -74,12 +73,15 @@ function makeFlatSource(name: string, files: readonly string[] = OFFICIAL_FILES)
 function runCheck(args: string[], env: NodeJS.ProcessEnv = {}): { status: number | null; stdout: string; stderr: string } {
   const baseEnv = { ...process.env };
   delete baseEnv.KALVORA_PROTO_SOURCE;
-  const result = spawnSync(TSX, [SCRIPT, '--check', ...args], {
+  // Invoke Node directly: node_modules/.bin/tsx is a shell shim on Windows.
+  const result = spawnSync(process.execPath, ['--import', 'tsx', SCRIPT, '--check', ...args], {
     cwd: ROOT,
     encoding: 'utf8',
     env: { ...baseEnv, ...env },
-    timeout: TIMEOUT
+    timeout: TIMEOUT,
+    windowsHide: true
   });
+  if (result.error) throw result.error;
   return { status: result.status, stdout: result.stdout, stderr: result.stderr };
 }
 
@@ -111,6 +113,8 @@ describe('sync-protos --check', () => {
   it('exits 0 when the rewritten indexer protos match the SDK protos', () => {
     const source = makeSource('up-to-date');
     const { status, stdout, stderr } = runCheck(['--source', source]);
+    // Node may emit loader deprecations on stderr; success is the exit status
+    // plus the exact up-to-date messages asserted below.
     expect(status, stderr).toBe(0);
     for (const [, to] of FILES) {
       expect(stdout).toContain(`up to date  ${to}`);
@@ -121,6 +125,8 @@ describe('sync-protos --check', () => {
   it('accepts the official flat release and skips the absent guardian.proto', () => {
     const source = makeFlatSource('official-flat');
     const { status, stdout, stderr } = runCheck(['--source', source]);
+    // Node may emit loader deprecations on stderr; success is the exit status
+    // plus the exact up-to-date messages asserted below.
     expect(status, stderr).toBe(0);
     for (const file of OFFICIAL_FILES) {
       expect(stdout).toContain(`up to date  ${file}`);

@@ -5,19 +5,53 @@ All notable changes to this project are documented here. The format follows
 [Semantic Versioning](https://semver.org/). While the version is `0.0.x`, any
 release may change APIs; pin an exact version.
 
-## Unreleased
+## [Unreleased]
+
+## [0.0.1-alpha.3] — unpublished review candidate
+
+This source version distinguishes the breaking clean-genesis protocol from
+published alpha.2. Pin a reviewed Git commit; no npm release is implied.
+Wallet derivation is unchanged.
 
 ### Changed
 
-- **Breaking (installation):** Solana bridge dependencies are now optional peers
-  rather than automatically installed optional dependencies. Native Kalvora and
-  wallet ESM consumers no longer install the legacy Solana dependency tree. Full
-  root ESM/bridge consumers must explicitly install `@solana/web3.js` and
-  `@solana/spl-token`. Source builds retain both as development dependencies;
-  transaction bytes, root exports and the bundled CommonJS API are unchanged.
-  Optional peer version constraints also apply to native/wallet-only consumers
-  with Solana already installed: incompatible pins can fail npm installation
-  with `ERESOLVE`. This broader alpha installation constraint is intentional.
+- **Breaking:** sync the 2026-10-27 clean-genesis network protos and regenerate
+  bindings. Configure the exact trusted chain ID with
+  `configureTransactionContext` before building or signing. `kal_main` and
+  `kal_proto` are literal wire identifiers; they are never hashed or padded.
+  Signers validate
+  the pinned chain, signature domain, and concrete transaction type.
+- **Breaking:** remove Quash APIs and retired restricted-key delay/quash and
+  contract quash-threshold fields. Legacy signed transactions must be rebuilt
+  and signed again.
+- **Breaking:** smart-contract execute/instantiate allowances use a finite
+  uint256 `allowedAmount` or the exact string `"unlimited"`. Omitted lists
+  and unlisted tokens have zero caller-wallet spending budget.
+- Processing-result decoders require explicit `TXNStatusFees.status` presence;
+  query lookups throw a retryable `IncompleteTransactionReceiptError` when a
+  matching hash is present without a status, including transactions without
+  receipt rows. Polling retries that height until an explicit success/failure
+  receipt, timeout or abort, instead of advancing past it. Pure decoders still
+  omit incomplete rows. Receipt polling does not verify block finality evidence.
+
+### Packaging and text correctness
+
+- Restore the ESM-only `kalvora.js/native` entry, including trusted chain
+  configuration/assertion, and the Git `prepare` build lifecycle.
+- Solana bridge packages are optional peers, not automatic consumer installs;
+  the full root ESM entry still requires compatible explicit peers.
+- Preserve exact nonblank Markdown body whitespace and reject dangling Unicode
+  surrogates before protobuf encoding. Title/synopsis validation stays strict.
+- Keep native/root versions synchronized and consumer declarations compatible
+  with NodeNext. Native package smoke checks require no live RPC access.
+
+### Added
+
+- Canonical offline/multisig signing and hashing helpers, sponsor signing
+  bytes, and explicit transaction-context overrides. See
+  [transaction signing](./src/sign/README.md).
+- Optional BLS attestation key input for validator registration, with key/proof
+  byte-length validation.
 
 ## [0.0.1-alpha.2] — 2026-10-01
 

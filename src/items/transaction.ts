@@ -207,7 +207,7 @@ async function buildBaseForItemTXN(
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
   if (options.timestamp !== undefined) baseParams.timestamp = options.timestamp;
 
-  return buildStandardBaseTXN(baseParams);
+  return buildStandardBaseTXN(baseParams, operation.slice(5));
 }
 
 function buildFeeOptions<T extends ItemizedMintTXN | NFTTXN | BurnSBTTXN>(

@@ -21,7 +21,6 @@ service TXNService{
     rpc NFT(NFTTXN) returns (google.protobuf.Empty);
     rpc ContractUpdate(ContractUpdateTXN) returns (google.protobuf.Empty); 
     rpc DelegatedVoting(DelegatedTXN) returns (google.protobuf.Empty);
-    rpc Quash(QuashTXN) returns (google.protobuf.Empty);
     rpc Revoke(RevokeTXN) returns (google.protobuf.Empty);
     rpc Compliance(ComplianceTXN) returns (google.protobuf.Empty);
     rpc BurnSBT(BurnSBTTXN) returns (google.protobuf.Empty);
@@ -30,6 +29,8 @@ service TXNService{
 }
 
 enum TXN_STATUS{
+    reserved 23, 26;
+    reserved "TIME_DELAY_INITIALIZED", "TIME_DELAY_EXPIRED";
     OK = 0;
     INVALID_PARAMETERS = 1;
     INSUFFICIENT_AMOUNT = 2;
@@ -53,10 +54,8 @@ enum TXN_STATUS{
     RESTRICTED_SYMBOL = 20;
     INVALID_PROPOSAL_ID = 21;
     PROPOSAL_NOT_IN_VOTING_PERIOD = 22;
-    TIME_DELAY_INITIALIZED = 23;
     INVALID_TXN_HASH = 24;
     INVALID_TXN_TYPE = 25;
-    TIME_DELAY_EXPIRED = 26;
     DUPLICATE_AUTH_KEY = 27;
     KEY_WEIGHT_TOO_LOW = 28;
     INVALID_ITEM = 29;
@@ -78,8 +77,8 @@ enum TXN_STATUS{
 }
 enum TRANSACTION_TYPE
 {
-    reserved 18;
-    reserved "FAST_QUORUM_TYPE";
+    reserved 17, 18;
+    reserved "QUASH_TYPE", "FAST_QUORUM_TYPE";
     UKNOWN_TYPE = 0;
     COIN_TYPE = 1;
     MINT_TYPE = 2;
@@ -97,7 +96,6 @@ enum TRANSACTION_TYPE
     PROPOSAL_RESULT_TYPE = 14;
     DELEGATED_VOTING_TYPE = 15;
     REVOKE_TYPE = 16;
-    QUASH_TYPE = 17;
     COMPLIANCE_TYPE = 19;
     SBT_BURN_TYPE = 20;
     REQUIRED_VERSION = 21;
@@ -212,7 +210,7 @@ message Governance{
     GOVERNANCE_TYPE type = 1;              //read GOVERNANCE_TYPE above
     uint32 regular_quorum = 2;             //percent of yes votes to pass at the end of cycle (still needs to pass threshhold) 10000 = 100&
     repeated string voting_instrument = 4; //which voting instruments are allowed to vote in this contract
-    uint32 threshold = 5;                  //threshold of participation of holders needed to be accepted 1000 = 100%
+    uint32 threshold = 5;                  //threshold of participation of holders needed to be accepted; 10000 = 100%
     optional bool chicken_dinner = 6;      //Option winner does not need to pass regular quorum.
     bool allow_multi = 7;                  //Allow multiple choice proposals.
     optional uint32 voting_period = 8;     //How many days in the voting period (Months | Days). (cannot be present with adaptive) | (must be present with cycle & staggered & staged)
@@ -236,28 +234,26 @@ message CoinDenomination{
 message ContractFees{
     string fee = 1;                 //100% && $1.00 = 1,000,000,000,000,000,000 (quintillion)
     optional bytes fee_address = 2; //address of contract holder (or the wallet they want fees to go to)
-    string burn = 3;                //percent = 100% = 1000000000000000000 (quintillion)
-    string validator = 4;           //percent = 100% = 1000000000000000000 (quintillion)
+    string burn = 3;                //whole percent; 100 = 100%
+    string validator = 4;           //whole percent; burn + validator must be <= 100
     repeated string allowed_fee_instrument = 5; //contract_ids that can be used to pay fees
     CONTRACT_FEE_TYPE contract_fee_type = 6;    //read CONTRACT_FEE_TYPE above
 }
 message ItemContractFees{
     string fee = 1;                  //$1.00 = 1000000000000000000 (quintillion)
     optional bytes fee_address = 2;
-    string burn = 3;
-    string validator = 4;
+    string burn = 3;                 //whole percent; credited to treasury
+    string validator = 4;            //whole percent; burn + validator must be <= 100
     repeated string allowed_fee_instrument = 5;
 }
 message RestrictedKey{
     PublicKey public_key = 1;
-    int64 time_delay = 2;
     // Field 3 was previously "global". Keep both the number and name reserved
     // so historical data remains parseable and neither can be reused.
-    reserved 3;
-    reserved "global";
+    reserved 2, 3, 6;
+    reserved "time_delay", "global", "quash";
     bool update_contract = 4;
     bool transfer = 5;
-    bool quash = 6;
     bool mint = 7;
     bool vote = 8;
     bool propose = 9;
@@ -308,10 +304,15 @@ message BaseTXN{
     // blocks remain parseable and the field number is never reused again.
     reserved 14;
     optional FeePayer fee_payer = 15; //third party that pays this txn's fees (sponsored txns)
+    // Clean-genesis signature cutover: clients set these before any user,
+    // multisig, or sponsor signature. Missing/legacy values are rejected.
+    bytes signature_domain = 16;
+    bytes chain_id = 17;
+    TRANSACTION_TYPE intended_type = 18;
 }
 //A third party (sponsor) that agrees to pay the fees for a txn the user already signed.
 //The sponsor signs the entire user-signed txn (user signature included) and provides their
-//own nonce. v1 only accepts this on GovernanceVote txns.
+//own nonce. The validator's fee_payer.h allowlist controls eligible txn types.
 message FeePayer{
     PublicKey public_key = 1; //sponsor's public key (single user key in v1)
     bytes signature = 2;      //sponsor's signature over the user-signed txn (hash + this signature cleared)
@@ -359,16 +360,6 @@ message ComplianceTXN{
 message Wallets{
     bytes address = 1;
     string amount = 2;
-}
-message QuashTXN{
-    BaseTXN base = 1;
-    string contract_id = 2;
-    bytes txn_hash = 3;
-}
-message QuashResult
-{
-    bytes txn_hash = 1;
-    repeated PublicKey public_keys = 2;
 }
 message CoinTXN
 {
@@ -439,7 +430,8 @@ message ContractUpdateTXN{
     repeated TokenCompliance token_compliance = 10; //Compliance levels for kyc compliance
     optional bool kyc_status = 11;            //if true, this contract will require kyc to transact
     optional bool immutable_kyc_status = 12;  //if kyc_status is true, this will make it immutable
-    optional uint32 quash_threshold = 13;     
+    reserved 13;
+    reserved "quash_threshold";
 }
 message InstrumentContract{
     BaseTXN base = 1; 
@@ -458,7 +450,8 @@ message InstrumentContract{
     CONTRACT_TYPE type = 14;
     bool update_contract_fees = 15;
     bool update_expense_ratio = 16;
-    optional uint32 quash_threshold = 17;           //total number of quash txns to quash a time delay txn
+    reserved 17;
+    reserved "quash_threshold";
     repeated TokenCompliance token_compliance = 18; //Compliance levels for each token that are manditory to transact with this contract
     bool kyc_status = 19;                           //if true, this contract will require kyc to transact
     bool immutable_kyc_status = 20;                 //if kyc_status is true, this will make it immutable
@@ -515,10 +508,13 @@ message Parameters
 // Per-execution outflow allowance, signed by the user as part of the
 // execute/instantiate txn. Bounds how much of a given token may leave the
 // user's wallet across the entire nested smart contract execution tree.
+// Omitted/unlisted tokens have zero allowance. The exact string "unlimited"
+// explicitly permits uncapped spending of the named token only.
 message SmartContractAllowance {
+    reserved 3;
+    reserved "unlimited";
     string contract_id = 1;             // token whose outflow is capped
-    optional string allowed_amount = 2; // max parts of token that may leave the user wallet this execution
-    optional bool unlimited = 3;        // explicit opt-in: no cap for this token
+    optional string allowed_amount = 2; // decimal max parts, or exactly "unlimited"
 }
 message SmartContractExecuteTXN{
     BaseTXN base = 1;
@@ -535,6 +531,11 @@ message SmartContractInstantiateTXN{
     repeated Parameters parameters = 4;
     repeated SmartContractAllowance allowances = 5;
 }
+message AttestationKey {
+    uint64 version = 1;
+    bytes public_key = 2;             // Compressed BLS12-381 G1, 48 bytes
+    bytes proof_of_possession = 3;    // POP proof in G2, 96 bytes
+}
 //key = generated public key
 message Validator{
     reserved 5;                //was staked_contract_ids; staking is KAL-only
@@ -548,6 +549,10 @@ message Validator{
     bool online = 9;
     uint32 version = 10;
     uint64 last_heartbeat = 11;
+    AttestationKey attestation_key = 12;
+    // Finalized block time of the last accepted heartbeat or produced block.
+    // User-supplied registration values are ignored by consensus.
+    uint64 last_heartbeat_time_seconds = 13;
 }
 message ValidatorRegistration{
     BaseTXN base = 1;
@@ -606,9 +611,35 @@ message AllowanceTXN{
     google.protobuf.Timestamp start_time = 9;        //Start time of the allowance.
     bool authorize = 10;                             //true to authorize, false to de-authorize
 }
+// One ordered, independently replayable result for each selected child of an
+// approved governance proposal. A hard rejection has no fee receipt and does
+// not consume a new child or sponsor nonce.
+enum GovernanceChildDisposition {
+    GOVERNANCE_CHILD_UNSPECIFIED = 0;
+    GOVERNANCE_CHILD_RECEIPT_SUCCESS = 1;
+    GOVERNANCE_CHILD_RECEIPT_FAILURE = 2;
+    GOVERNANCE_CHILD_DUPLICATE_HASH = 3;
+    GOVERNANCE_CHILD_SPENT_NONCE = 4;
+    GOVERNANCE_CHILD_FUTURE_NONCE = 5;
+    GOVERNANCE_CHILD_CANNOT_PAY_FEE = 6;
+    // Deterministic, child-byte-only parameter rejection before any receipt.
+    GOVERNANCE_CHILD_INVALID_PARAMETERS = 7;
+}
+
+message GovernanceChildOutcome {
+    string source_contract = 1;
+    bytes proposal_id = 2;
+    bytes governance_order = 3;
+    bytes child_hash = 4;
+    bytes queued_wrapper_sha256 = 5;
+    GovernanceChildDisposition disposition = 6;
+    // Present only for a child with an ordinary TXNStatusFees receipt.
+    optional uint32 receipt_index = 7;
+}
+
 message TXNS{
-    reserved 20;
-    reserved "fast_quorum_txns";
+    reserved 19, 20, 21;
+    reserved "quash_txns", "fast_quorum_txns", "quash_results";
     repeated CoinTXN coin_txns = 1;
     repeated MintTXN mint_txns = 2;
     repeated ItemizedMintTXN item_mint_txns = 3;
@@ -627,8 +658,6 @@ message TXNS{
     repeated ProposalResult proposal_result_txns = 16; //
     repeated ExpenseRatioResult expense_ratio_result_txns = 17;
     repeated DelegatedTXN delegated_voting_txns = 18;
-    repeated QuashTXN quash_txns = 19;
-    repeated QuashResult quash_results = 21;
     repeated RevokeTXN revoke_txns = 22;
     repeated ComplianceTXN compliance_txns = 23;
     repeated BurnSBTTXN burn_sbt_txns = 24;
@@ -636,6 +665,7 @@ message TXNS{
     optional RequiredVersion required_version_txn = 26;
     repeated AllowanceTXN allowance_txns = 27;
     repeated ProposalCancelTXN proposal_cancel_txns = 28;
+    repeated GovernanceChildOutcome governance_child_outcomes = 29;
 }
 
 message Token{
@@ -658,7 +688,9 @@ message NestedResult{
 }
 message TXNStatusFees{
     bytes txn_hash = 1;
-    TXN_STATUS status = 2;
+    // Presence is required when reconstructing a processed transaction.
+    // Without optional presence, a hash-only row decodes as OK.
+    optional TXN_STATUS status = 2;
     string base_fees = 3;
     string base_contract_id = 4;
     optional string contract_fees = 5;
@@ -674,6 +706,9 @@ message TXNStatusFees{
     repeated NestedResult nested_results = 17;
     optional bytes root_hash = 18; //root hash of the smart contract
     optional uint64 proposal_identifier = 19;
+    // Wallet actually debited for a governance proposal's locked fee remainder.
+    // It may be a signed sponsor or a smart-contract fee wallet.
+    optional bytes proposal_escrow_payer_wallet = 20;
 }
 message ProposalContract
 {
@@ -683,8 +718,8 @@ message ProposalContract
 }
 
 message TXNWrapper{
-    reserved 16;
-    reserved "fast_quorum_txn";
+    reserved 15, 16;
+    reserved "quash_txn", "fast_quorum_txn";
     oneof payload{
         CoinTXN coin_txn = 1;
         MintTXN mint_txn = 2;
@@ -700,7 +735,6 @@ message TXNWrapper{
         ValidatorRegistration validator_registration_txn = 12;
         ValidatorHeartbeat validator_heartbeat_txn = 13;
         DelegatedTXN delegated_voting_txn = 14;
-        QuashTXN quash_txn = 15;
         RevokeTXN revoke_txn = 17;
         ComplianceTXN compliance_txn = 18;
         bool proposal_result_txn = 19;
@@ -715,4 +749,11 @@ message TXNWrapper{
     repeated bytes proposal_ids = 25;
     repeated ProposalContract proposal_contracts = 26;
     optional bool smart_contract_txn = 27;
+    // Proposal id followed by the big-endian declared child index; queued
+    // governance children execute in ascending order of this key.
+    optional bytes governance_order = 29;
+    // Local pending-ingress metadata. The relay row is the exact serialized
+    // kal_validator.TXN admitted with this wrapper; it never enters a block.
+    optional uint32 gossip_ingress_version = 30;
+    optional bytes gossip_relay_row = 31;
 }

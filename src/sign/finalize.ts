@@ -14,12 +14,13 @@
  * @module sign/finalize
  */
 
-import { create, toBinary } from '@bufbuild/protobuf';
+import { clone, toBinary, type Message } from '@bufbuild/protobuf';
 
-import { TransferAuthenticationSchema, type BaseTXN, type CoinTXN } from '../../proto/generated/txn_pb.js';
+import { type BaseTXN, type CoinTXN } from '../../proto/generated/txn_pb.js';
 import { getSchemaForTypeName } from '../adapter/serialization.js';
 import { signTransactionData, createTransactionHash } from '../shared/crypto/signature-utils.js';
 
+import { assertTransactionContext, type TransactionContext } from './context.js';
 import type { KalvoraSigner } from './signer.js';
 
 // ============================================================================
@@ -58,13 +59,71 @@ function messageToBytes(msg: unknown): Uint8Array {
  * @throws Error if the transaction has no `base` (signing would otherwise be
  *   silently discarded).
  */
-function prepareBaseForSigning(txn: { base?: BaseTXN }): BaseTXN {
+function prepareBaseForSigning(txn: { $typeName?: string; base?: BaseTXN }, context?: TransactionContext): BaseTXN {
   if (!txn.base) {
     throw new Error('Cannot sign transaction: it has no base (BaseTXN) envelope');
   }
+  assertTransactionContext(txn, context);
   delete txn.base.signature;
   delete txn.base.hash;
+  delete txn.base.feePayer;
+  if (txn.base.publicKey?.multi) txn.base.publicKey.multi.signatures = [];
+  if (txn.$typeName === 'kal_txn.ValidatorRegistration') {
+    (txn as unknown as { generatedSignature: Uint8Array }).generatedSignature = new Uint8Array(0);
+  }
   return txn.base;
+}
+
+/** Canonical V1 bytes for offline and multisig signers; leaves the input intact. */
+export function getTransactionSigningBytes<T extends Message & { base?: BaseTXN }>(txn: T, context?: TransactionContext): Uint8Array {
+  const schema = getSchemaForTypeName(txn.$typeName);
+  if (!schema) throw new Error(`Unsupported transaction type: ${txn.$typeName}`);
+  const copy = clone(schema, txn) as T;
+  prepareBaseForSigning(copy, context);
+  if (copy.$typeName === 'kal_txn.CoinTXN') {
+    const coin = copy as unknown as CoinTXN;
+    if (!coin.auth || coin.auth.publicKey.length === 0 || coin.auth.nonce.length !== coin.auth.publicKey.length) {
+      throw new Error('CoinTXN auth public keys and nonce slots must be populated before signing');
+    }
+    coin.auth.signature = [];
+    for (const key of coin.auth.publicKey) if (key.multi) key.multi.signatures = [];
+  }
+  return messageToBytes(copy);
+}
+
+/** Sponsor approval covers the user signature plus the sponsor key and nonce. */
+export function getSponsorSigningBytes<T extends Message & { base?: BaseTXN }>(txn: T, context?: TransactionContext): Uint8Array {
+  assertTransactionContext(txn, context);
+  if (['kal_txn.CoinTXN', 'kal_txn.ProposalResult', 'kal_txn.ValidatorRegistration', 'kal_txn.ValidatorHeartbeat'].includes(txn.$typeName)) {
+    throw new Error('This transaction type cannot use base.feePayer sponsorship');
+  }
+  const hasUserSignature = txn.base?.signature?.length || txn.base?.publicKey?.multi?.signatures.some(signature => signature.length > 0);
+  if (!txn.base?.feePayer?.publicKey?.single.length || !hasUserSignature) {
+    throw new Error('Sponsor signing requires a user-signed transaction and a single-key feePayer with its nonce');
+  }
+  const schema = getSchemaForTypeName(txn.$typeName);
+  if (!schema) throw new Error(`Unsupported transaction type: ${txn.$typeName}`);
+  const copy = clone(schema, txn) as T;
+  const base = copy.base;
+  if (!base?.feePayer) throw new Error('Missing sponsor envelope');
+  delete base.hash;
+  base.feePayer.signature = new Uint8Array(0);
+  return messageToBytes(copy);
+}
+
+/** Hash a completed signed message, excluding the hash itself and registration co-signature. */
+export function finalizeTransactionHash<T extends Message & { base?: BaseTXN }>(txn: T, context?: TransactionContext): T {
+  assertTransactionContext(txn, context);
+  const schema = getSchemaForTypeName(txn.$typeName);
+  if (!schema) throw new Error(`Unsupported transaction type: ${txn.$typeName}`);
+  const copy = clone(schema, txn) as T;
+  if (!copy.base || !txn.base) throw new Error('Cannot hash transaction without a base envelope');
+  delete copy.base.hash;
+  if (copy.$typeName === 'kal_txn.ValidatorRegistration') {
+    (copy as unknown as { generatedSignature: Uint8Array }).generatedSignature = new Uint8Array(0);
+  }
+  txn.base.hash = createTransactionHash(messageToBytes(copy));
+  return txn;
 }
 
 // ============================================================================
@@ -85,9 +144,12 @@ function prepareBaseForSigning(txn: { base?: BaseTXN }): BaseTXN {
  */
 export async function signAndFinalize<T extends { base?: BaseTXN }>(
   txn: T,
-  signer: KalvoraSigner
+  signer: KalvoraSigner,
+  context?: TransactionContext
 ): Promise<T> {
-  const baseData = prepareBaseForSigning(txn);
+  if ((txn as { $typeName?: string }).$typeName === 'kal_txn.CoinTXN') throw new Error('Use signCoinTXN for CoinTXN authorization signatures');
+  const baseData = prepareBaseForSigning(txn, context);
+  if (baseData.publicKey?.multi) throw new Error('Use getTransactionSigningBytes to collect base multisig signatures');
   const bytes = messageToBytes(txn);
   const signature = await signer.sign(bytes);
   baseData.signature = signature;
@@ -117,10 +179,13 @@ export async function signAndFinalize<T extends { base?: BaseTXN }>(
 export function signWithKey<T extends { base?: BaseTXN }>(
   txn: T,
   privateKey: string,
-  publicKeyId: string
+  publicKeyId: string,
+  context?: TransactionContext
 ): T {
+  if ((txn as { $typeName?: string }).$typeName === 'kal_txn.CoinTXN') throw new Error('Use signCoinTXNWithKeys for CoinTXN authorization signatures');
   // Sign
-  const baseData = prepareBaseForSigning(txn);
+  const baseData = prepareBaseForSigning(txn, context);
+  if (baseData.publicKey?.multi) throw new Error('Use getTransactionSigningBytes to collect base multisig signatures');
   const bytes = messageToBytes(txn);
   const signature = signTransactionData(bytes, privateKey, publicKeyId);
   baseData.signature = signature;
@@ -150,7 +215,8 @@ export function signWithKey<T extends { base?: BaseTXN }>(
  */
 export async function signCoinTXN(
   txn: CoinTXN,
-  signers: KalvoraSigner[]
+  signers: KalvoraSigner[],
+  context?: TransactionContext
 ): Promise<CoinTXN> {
   if (!signers || signers.length === 0) {
     throw new Error('At least one signer is required');
@@ -159,19 +225,13 @@ export async function signCoinTXN(
   if (!txn.base) {
     throw new Error('Cannot sign CoinTXN: it has no base (BaseTXN) envelope');
   }
-  // A stale hash must never be part of the signed bytes.
-  delete txn.base.hash;
-  const txnBytes = messageToBytes(txn);
-
-  // Attach the auth container if missing so signatures are never written to
-  // a detached object (which would silently leave the transaction unsigned).
-  if (!txn.auth) {
-    txn.auth = create(TransferAuthenticationSchema, {});
-  }
+  const txnBytes = getTransactionSigningBytes(txn, context);
+  prepareBaseForSigning(txn, context);
+  if (!txn.auth) throw new Error('CoinTXN requires authorization slots before signing');
   const authData = txn.auth;
-  if (!authData.signature) {
-    authData.signature = [];
-  }
+  authData.signature = authData.publicKey.map(() => new Uint8Array(0));
+  for (const key of authData.publicKey) if (key.multi) key.multi.signatures = [];
+  if (signers.length > authData.publicKey.length) throw new Error('More signers than CoinTXN authorization slots');
 
   for (let i = 0; i < signers.length; i++) {
     const signer = signers[i];
@@ -179,7 +239,8 @@ export async function signCoinTXN(
 
     try {
       const signature = await signer.sign(txnBytes);
-      authData.signature.push(signature);
+      if (authData.publicKey[i]?.multi) throw new Error('Use getTransactionSigningBytes to collect Coin multisig signatures');
+      authData.signature[i] = signature;
     } catch (error) {
       throw new Error(`Failed to sign with signer ${i}: ${(error as Error).message}`);
     }
@@ -219,7 +280,8 @@ export interface CoinTXNKeyPair {
  */
 export function signCoinTXNWithKeys(
   txn: CoinTXN,
-  keys: CoinTXNKeyPair[]
+  keys: CoinTXNKeyPair[],
+  context?: TransactionContext
 ): CoinTXN {
   if (!keys || keys.length === 0) {
     throw new Error('At least one key pair is required');
@@ -228,19 +290,13 @@ export function signCoinTXNWithKeys(
   if (!txn.base) {
     throw new Error('Cannot sign CoinTXN: it has no base (BaseTXN) envelope');
   }
-  // A stale hash must never be part of the signed bytes.
-  delete txn.base.hash;
-  const txnBytes = messageToBytes(txn);
-
-  // Attach the auth container if missing so signatures are never written to
-  // a detached object (which would silently leave the transaction unsigned).
-  if (!txn.auth) {
-    txn.auth = create(TransferAuthenticationSchema, {});
-  }
+  const txnBytes = getTransactionSigningBytes(txn, context);
+  prepareBaseForSigning(txn, context);
+  if (!txn.auth) throw new Error('CoinTXN requires authorization slots before signing');
   const authData = txn.auth;
-  if (!authData.signature) {
-    authData.signature = [];
-  }
+  authData.signature = authData.publicKey.map(() => new Uint8Array(0));
+  for (const key of authData.publicKey) if (key.multi) key.multi.signatures = [];
+  if (keys.length > authData.publicKey.length) throw new Error('More keys than CoinTXN authorization slots');
 
   for (let i = 0; i < keys.length; i++) {
     const key = keys[i];
@@ -251,7 +307,8 @@ export function signCoinTXNWithKeys(
 
     try {
       const signature = signTransactionData(txnBytes, key.privateKey, key.publicKey);
-      authData.signature.push(signature);
+      if (authData.publicKey[i]?.multi) throw new Error('Use getTransactionSigningBytes to collect Coin multisig signatures');
+      authData.signature[i] = signature;
     } catch (error) {
       throw new Error(`Failed to sign with key ${i}: ${(error as Error).message}`);
     }

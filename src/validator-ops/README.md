@@ -18,7 +18,7 @@ return the hex `base.hash`.
 | Function | Purpose |
 |---|---|
 | `buildValidatorRegistrationTXN(input, options?)` | Unsigned registration, with `generated_public_key` set and `generated_signature` empty |
-| `attachGeneratedSignature(txn, generatedPrivateKey, generatedPublicKey)` | Sets `generated_signature = sign(base.hash)` on an operator-signed registration |
+| `attachGeneratedSignature(txn, generatedPrivateKey, generatedPublicKey, context?)` | Sets `generated_signature = sign(base.hash)` on an operator-signed registration |
 | `createValidatorRegistrationTXN(input, operatorPrivateKey, generatedKeyPair, options?)` | Build, then operator-sign, then generated-key co-sign |
 | `sendValidatorRegistrationTXN(txn, grpcConfig?)` | Submit. Needs `base.signature`, `base.hash` and `generated_signature` |
 | `buildValidatorHeartbeatTXN(input, options?)` | Unsigned heartbeat |
@@ -66,21 +66,21 @@ const hash = await sendValidatorHeartbeatTXN(hb);
 
 ## Signing order and the generated-key signature
 
-> **Assumption, not verified against the validator implementation.**
-> The proto describes `generated_signature` as "signature of the generated
-> public key (signing txn hash)". This module reads that as follows:
->
-> 1. Build the transaction with `generated_public_key` set and
->    `generated_signature` empty.
-> 2. Sign with the operator key (`signWithKey`). This sets `base.signature` and
->    then `base.hash = SHA3-256(serialized signed txn)`.
-> 3. Set `generated_signature = sign(generatedPrivateKey, base.hash)`.
->
-> Because step 3 runs after hashing, `generated_signature` is **not** covered
-> by `base.signature` or `base.hash`.
+V1 registration signing follows this order:
 
-If validators turn out to verify in a different order, compose the steps
-yourself with the lower-level functions:
+1. Pin the operator-supplied chain ID with `configureTransactionContext({ chainId })`.
+   Build the complete transaction, including the ordinary `KAL_USER_TXN_V1`
+   domain, registration intended type, and `generated_public_key`.
+2. With `base.signature`, `base.hash`, and `generated_signature` absent,
+   sign the transaction with the operator key. Hash the operator-signed
+   transaction with `base.hash` and `generated_signature` still absent.
+3. Validate that the context still matches the trusted chain and sign the raw
+   `base.hash` bytes with the generated operational key. The co-signer first
+   verifies that this hash matches the owner-signed registration body.
+
+The operational co-signature is outside the owner signature and transaction
+hash. Both signers reject missing or foreign context. The lower-level pipeline
+is:
 
 ```typescript
 import { buildValidatorRegistrationTXN, signWithKey, attachGeneratedSignature } from 'kalvora.js';
@@ -91,7 +91,9 @@ attachGeneratedSignature(txn, node.privateKey, node.publicKey);
 ```
 
 `attachGeneratedSignature` requires an operator-signed transaction whose
-`generated_public_key` matches the key you pass. The generated key can be
+`generated_public_key` matches the key you pass. Its optional fourth argument
+accepts an explicit trusted signing context; otherwise it uses the configured
+chain pin. The generated key can be
 Ed25519 (`A_…`, 64-byte signature) or Ed448 (`B_…`, 114-byte signature).
 
 ## Validation
@@ -102,10 +104,14 @@ Ed25519 (`A_…`, 64-byte signature) or Ed448 (`B_…`, 114-byte signature).
 | `validator.clientPort`, `validator.validatorPort` | Integer or numeric string in `1`–`65535`, stored as a canonical decimal string |
 | `validator.stakedContractIds` | Removed in 0.0.1-alpha.0 (`Validator` field 5 is reserved; staking is KALV-only). Passing it throws |
 | `validator.benchmark`, `validator.lastHeartbeat` | uint64. Default `0` |
+| `validator.attestationKey` | Optional `{ version, publicKey, proofOfPossession }`: uint64 version, 48-byte BLS12-381 G1 key, 96-byte G2 proof. Consensus verifies the proof |
 | `validator.version`, heartbeat `version` | uint32 (`0`–`4294967295`). Registration default is `0` |
 | `validator.timestamp` | Valid `Date`. Defaults to now |
 | `register`, `online`, `lite` | Booleans |
 | `publicKey`, `generatedPublicKey`, `validator.publicKey` | Valid Kalvora public key identifiers |
+
+The committed `lastHeartbeatTimeSeconds` is maintained by consensus; a
+registration does not set this liveness timestamp.
 
 ## Fees and offline building
 

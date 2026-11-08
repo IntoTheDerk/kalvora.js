@@ -31,7 +31,19 @@ export {
 export { applyProposalStageFee } from './src/proposal/shape.js';
 export { buildVoteTXN, type BuildVoteTXNOptions } from './src/vote/transaction.js';
 export {
+  buildDelegatedTXN,
+  createDelegatedTXN,
+  sendDelegatedTXN,
+  DELEGATE_PRIORITY_MIN,
+  DELEGATE_PRIORITY_MAX,
+  type DelegateContractInput,
+  type DelegateVoteInput,
+  type DelegateFeesInput,
+  type DelegatedInput
+} from './src/delegated-voting/index.js';
+export {
   ProposalType,
+  type DelegatedTXN,
   type GovernanceProposal,
   type GovernanceVote,
   type InstrumentContract
@@ -50,3 +62,7 @@ export {
   UniversalFeeCalculator,
   type FeeConfigHelper
 } from './src/shared/fee-calculators/universal-fee-calculator.js';
+
+// Trusted network pinning uses the same context as the root ESM entry.
+export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './src/sign/context.js';
+export { getSponsorSigningBytes, finalizeTransactionHash } from './src/sign/finalize.js';

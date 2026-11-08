@@ -1,7 +1,12 @@
-import { fromBinary, toBinary } from '@bufbuild/protobuf';
+import { clone, fromBinary, toBinary } from '@bufbuild/protobuf';
+import { createRouterTransport } from '@connectrpc/connect';
+import { ed25519 } from '@noble/curves/ed25519.js';
 import bs58 from 'bs58';
+import { afterEach, vi } from 'vitest';
 
-import { DelegatedTXNSchema } from '../../../proto/generated/txn_pb.js';
+import { DelegatedTXNSchema, TRANSACTION_TYPE, TXNService, type DelegatedTXN } from '../../../proto/generated/txn_pb.js';
+import { configureTransactionContext } from '../../sign/context.js';
+import { getTransactionSigningBytes, signAndFinalize } from '../../sign/finalize.js';
 import { ED25519_TEST_KEYS } from '../../test-utils/keys.test.js';
 import {
   DELEGATE_PRIORITY_MAX,
@@ -11,6 +16,11 @@ import {
   sendDelegatedTXN,
   type DelegatedInput
 } from '../index.js';
+
+vi.unmock('@connectrpc/connect');
+vi.unmock('@connectrpc/connect-web');
+
+afterEach(() => configureTransactionContext({ chainId: new Uint8Array(32).fill(0x42) }));
 
 const { alice, bob, charlie } = ED25519_TEST_KEYS;
 const OPTIONS = {
@@ -142,6 +152,12 @@ describe('createDelegatedTXN / sendDelegatedTXN', () => {
     const decoded = fromBinary(DelegatedTXNSchema, toBinary(DelegatedTXNSchema, txn));
     expect(decoded.base?.signature).toEqual(txn.base?.signature);
     expect(decoded.base?.hash).toEqual(txn.base?.hash);
+    const bytes = getTransactionSigningBytes(txn);
+    const publicKey = bs58.decode(alice.publicKey.split('_').pop()!);
+    expect(ed25519.verify(txn.base!.signature!, bytes, publicKey)).toBe(true);
+    const changed = clone(DelegatedTXNSchema, txn);
+    changed.delegateVotes[0]!.contracts[0]!.priority += 1;
+    expect(ed25519.verify(txn.base!.signature!, getTransactionSigningBytes(changed), publicKey)).toBe(false);
   });
 
   it('requires a private key', async () => {
@@ -151,5 +167,35 @@ describe('createDelegatedTXN / sendDelegatedTXN', () => {
   it('refuses to submit an unsigned transaction', async () => {
     const txn = await buildDelegatedTXN(baseInput(), OPTIONS);
     await expect(sendDelegatedTXN(txn)).rejects.toThrow(/must be signed/);
+  });
+
+  it('submits the signed assignment once through the in-memory DelegatedVoting RPC', async () => {
+    const signed = await createDelegatedTXN(baseInput(), alice.privateKey, OPTIONS);
+    const expectedBytes = toBinary(DelegatedTXNSchema, signed);
+    const delegatedVoting = vi.fn((txn: DelegatedTXN) => {
+      expect(toBinary(DelegatedTXNSchema, txn)).toEqual(expectedBytes);
+      return {};
+    });
+    const transport = createRouterTransport(router => router.service(TXNService, { delegatedVoting }));
+    expect(await sendDelegatedTXN(signed, { transport })).toBe(Buffer.from(signed.base!.hash!).toString('hex'));
+    expect(delegatedVoting).toHaveBeenCalledTimes(1);
+  });
+
+  it('requires a trusted chain pin before building an assignment', async () => {
+    configureTransactionContext(undefined);
+    await expect(buildDelegatedTXN(baseInput(), OPTIONS)).rejects.toThrow('Trusted chainId is required');
+  });
+
+  it.each(['chainId', 'signatureDomain', 'intendedType'] as const)('rejects changed %s before signing', async field => {
+    configureTransactionContext({ chainId: 'kal_proto' });
+    const txn = await buildDelegatedTXN(baseInput(), OPTIONS);
+    expect(txn.base!.chainId).toEqual(new TextEncoder().encode('kal_proto'));
+    expect(txn.base!.signatureDomain).toEqual(new TextEncoder().encode('KAL_USER_TXN_V1'));
+    expect(txn.base!.intendedType).toBe(TRANSACTION_TYPE.DELEGATED_VOTING_TYPE);
+    if (field === 'intendedType') txn.base!.intendedType = TRANSACTION_TYPE.VOTE_TYPE;
+    else txn.base![field] = new Uint8Array(0);
+    const sign = vi.fn(async () => new Uint8Array(64));
+    await expect(signAndFinalize(txn, { publicKey: alice.publicKey, sign })).rejects.toThrow();
+    expect(sign).not.toHaveBeenCalled();
   });
 });

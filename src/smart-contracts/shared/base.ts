@@ -67,7 +67,7 @@ export async function buildSmartContractBaseTXN(
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
 
   return {
-    base: buildStandardBaseTXN(baseParams),
+    base: buildStandardBaseTXN(baseParams, operation.slice(5)),
     grpcConfig,
     effectiveFeeId
   };

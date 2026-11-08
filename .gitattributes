@@ -1,0 +1,2 @@
+# Official protocol sources must remain byte-identical, including CRLF.
+proto/*.proto -text

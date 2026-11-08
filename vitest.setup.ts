@@ -12,6 +12,11 @@
  */
 import { vi } from 'vitest';
 
+import { configureTransactionContext } from './src/sign/context.js';
+
+// Synthetic offline identity. Live signers must use an operator-supplied pin.
+configureTransactionContext({ chainId: new Uint8Array(32).fill(0x42) });
+
 // Mock @connectrpc/connect and @connectrpc/connect-web
 vi.mock('@connectrpc/connect', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@connectrpc/connect')>()),

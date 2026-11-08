@@ -7,8 +7,7 @@ credentials, licences, memberships the issuer must be able to withdraw.
 ## Permission required
 
 The signer's public key must be a `RestrictedKey` on the contract with
-`revoke = true`. With a `time_delay` on that key, the revocation is pending
-and quashable (see [`QuashTXN`](../quash/README.md)) until the delay ends.
+`revoke = true`.
 
 ## Example
 

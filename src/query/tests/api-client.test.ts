@@ -750,6 +750,93 @@ describe('block queries', () => {
       expect(calls).toEqual([10n, 11n, 12n, 13n]);
     });
 
+    describe.each(['hash-only receipt', 'transaction without receipt'] as const)('%s', pendingKind => {
+      function pendingBlock(height: bigint): Block {
+        return create(BlockSchema, {
+          blockHeader: { blockHeight: height },
+          transactions: pendingKind === 'hash-only receipt'
+            ? { txnFeesAndStatus: [{ txnHash: hash32(0x77) }] }
+            : { coinTxns: [{ base: { hash: hash32(0x77) } }] }
+        });
+      }
+
+      it('getTransactionResult throws a static retryable error only for the matching hash', async () => {
+        const { query } = chain(20, pendingBlock);
+        await expect(query.getTransactionResult(`0x${TX.toUpperCase()}`, 10)).rejects.toMatchObject({
+          name: 'IncompleteTransactionReceiptError',
+          message: 'Transaction processing receipt is incomplete; retry the same block',
+          isRetryable: true
+        });
+        expect(await query.getTransactionResult(hex32(0x78), 10)).toBeUndefined();
+      });
+
+      it.each([TXN_STATUS.OK, TXN_STATUS.INSUFFICIENT_AMOUNT])('retries the same height until explicit status %s', async status => {
+        let reads = 0;
+        const { calls, query } = chain(20, height => ++reads < 3
+          ? pendingBlock(height)
+          : blockWithResult(height, 0x77, status));
+        const result = await query.waitForTransaction(`0x${TX.toUpperCase()}`, {
+          fromHeight: 10, pollIntervalMs: 1, timeoutMs: 1000
+        });
+        expect(result).toMatchObject({ hash: TX, blockHeight: 10n, status, success: status === TXN_STATUS.OK });
+        expect(calls).toEqual([10n, 10n, 10n]);
+      });
+
+      it('times out on a permanently incomplete receipt without advancing', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        try {
+          const { calls, query } = chain(20, pendingBlock);
+          const pending = query.waitForTransaction(TX, { fromHeight: 10, pollIntervalMs: 10, timeoutMs: 35 });
+          const outcome = pending.catch((error: Error) => error);
+          await vi.advanceTimersByTimeAsync(40);
+          expect(await outcome).toMatchObject({ message: expect.stringContaining('Timed out after 35 ms') });
+          expect(calls).toEqual([10n, 10n, 10n, 10n]);
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+
+      it('aborts while waiting on an incomplete receipt without advancing', async () => {
+        vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'Date'] });
+        try {
+          const { calls, query } = chain(20, pendingBlock);
+          const controller = new AbortController();
+          const pending = query.waitForTransaction(TX, {
+            fromHeight: 10, pollIntervalMs: 10, timeoutMs: 1000, signal: controller.signal
+          });
+          const outcome = pending.catch((error: Error) => error);
+          await vi.advanceTimersByTimeAsync(15);
+          controller.abort();
+          expect(await outcome).toMatchObject({ message: 'Aborted' });
+          expect(calls).toEqual([10n, 10n]);
+          expect(vi.getTimerCount()).toBe(0);
+        } finally {
+          vi.useRealTimers();
+        }
+      });
+    });
+
+    it('prefers an explicit result when a matching incomplete row is also present', async () => {
+      const { query } = chain(20, height => create(BlockSchema, {
+        blockHeader: { blockHeight: height },
+        transactions: { txnFeesAndStatus: [
+          { txnHash: hash32(0x77) },
+          { txnHash: hash32(0x77), status: TXN_STATUS.OK, baseFees: '100' }
+        ] }
+      }));
+      expect(await query.getTransactionResult(TX, 10)).toMatchObject({ success: true });
+    });
+
+    it('advances past an unrelated incomplete receipt', async () => {
+      const { calls, query } = chain(20, height => height === 10n
+        ? create(BlockSchema, { transactions: { txnFeesAndStatus: [{ txnHash: hash32(0x78) }] } })
+        : blockWithResult(height, 0x77));
+      expect(await query.waitForTransaction(TX, { fromHeight: 10, pollIntervalMs: 1, timeoutMs: 1000 }))
+        .toMatchObject({ blockHeight: 11n, success: true });
+      expect(calls).toEqual([10n, 11n]);
+    });
+
     it('waitForTransaction polls until the block containing the transaction is produced', async () => {
       let tip = 10n;
       const calls: bigint[] = [];

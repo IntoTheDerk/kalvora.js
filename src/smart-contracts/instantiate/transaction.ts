@@ -14,6 +14,7 @@ import type { SmartContractInstantiateTXN } from '../../../proto/generated/txn_p
 import { validateKeyPair } from '../../contract/shared/utils.js';
 import { signWithKey } from '../../sign/finalize.js';
 import type { GRPCConfig } from '../../types/index.js';
+import { buildSmartContractAllowances, type SmartContractAllowanceInput } from '../shared/allowances.js';
 import {
   buildSmartContractBaseTXN,
   calculateSmartContractFee,
@@ -35,6 +36,8 @@ import {
 export type InstantiateParameter = SmartContractParameter;
 
 export interface BuildSmartContractInstantiateTXNOptions extends SmartContractBaseTXNOptions {
+  /** Caller-wallet outflow budgets. Omitted or unlisted tokens have zero allowance. */
+  allowances?: readonly SmartContractAllowanceInput[];
   /** Name of the deployed smart contract */
   smartContractName: string;
   /** Instance number to initialize */
@@ -74,6 +77,7 @@ export async function buildSmartContractInstantiateTXN(
   options: BuildSmartContractInstantiateTXNOptions
 ): Promise<SmartContractInstantiateTXN> {
   validateInstantiateOptions(options);
+  const allowances = buildSmartContractAllowances(options.allowances);
 
   const { base, grpcConfig, effectiveFeeId } = await buildSmartContractBaseTXN(
     options.publicKeyBase58Identifier,
@@ -85,7 +89,8 @@ export async function buildSmartContractInstantiateTXN(
     base,
     smartContractName: options.smartContractName,
     instance: options.instance,
-    parameters: buildSmartContractParameters(options.parameters ?? [])
+    parameters: buildSmartContractParameters(options.parameters ?? []),
+    allowances
   });
 
   await calculateSmartContractFee(instantiateTxn, options, grpcConfig, effectiveFeeId);

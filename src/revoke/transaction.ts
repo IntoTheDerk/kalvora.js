@@ -69,8 +69,7 @@ function parseItemId(value: unknown): string {
  * On-chain, a revoke transaction deletes item `itemId` of `contractId`.
  * The item is not moved to `recipientAddress`. Validators accept it only if
  * the signer's public key is a `RestrictedKey` of the contract with
- * `revoke = true`. With a `time_delay` on that key the revocation is held
- * pending and can be quashed until the delay elapses.
+ * `revoke = true`.
  *
  * Unless both `options.nonce` and `options.feeAmountParts` are set, this
  * function queries the network for the signer's next nonce and the base fee.

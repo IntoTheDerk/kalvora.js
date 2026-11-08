@@ -9,7 +9,7 @@
  * |------------------------|---------------------|-------------------------|
  * | {@link getNonce}       | `Nonce`             | none                    |
  * | {@link getBalance}     | `Balance`           | none                    |
- * | {@link getCheckpointInfo} | `GetCheckpointInfo` | signed request       |
+ * | {@link getCheckpointInfo} | `GetCheckpointInfo` | disabled at clean genesis |
  * | {@link syncValidatorList} | `SyncValidatorList` | signed request       |
  *
  * ## Signed requests
@@ -105,13 +105,15 @@ export class ValidatorQueryClient {
   }
 
   /**
-   * Latest state checkpoint of the node (signed request).
+   * Legacy checkpoint metadata request. Clean-genesis validators reject this
+   * RPC with `PERMISSION_DENIED`: public checkpoint downloads are disabled.
+   * Recovery uses verified local snapshots and controlled operator access.
    *
-   * @param signer - Any signer; the node verifies the signature but does not
-   *   require the key to belong to a validator.
+   * @deprecated Public checkpoint metadata/downloads are disabled at clean genesis.
+   *
+   * @param signer - Request signer for older deployments
    * @param now - Request timestamp (default: current time)
-   * @throws KalvoraRpcError `NOT_FOUND` when the node has no checkpoint,
-   *   `UNAUTHENTICATED` on a bad signature, `INVALID_ARGUMENT` on clock skew
+   * @throws KalvoraRpcError `PERMISSION_DENIED` on clean-genesis validators
    */
   async getCheckpointInfo(signer: KalvoraSigner, now: Date = new Date()): Promise<CheckpointInfo> {
     const request = create(CheckpointInfoRequestSchema, {

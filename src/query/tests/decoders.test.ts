@@ -1,7 +1,7 @@
 /**
  * Unit tests for the pure query decoders (no network access).
  */
-import { create } from '@bufbuild/protobuf';
+import { create, fromBinary, toBinary } from '@bufbuild/protobuf';
 import { describe, expect, it } from 'vitest';
 
 import { TRANSACTION_TYPE, TXN_STATUS, TXNStatusFeesSchema } from '../../../proto/generated/txn_pb.js';
@@ -270,6 +270,22 @@ describe('decodeContractSupply', () => {
 // ----------------------------------------------------------------------------
 
 describe('listBlockTransactions', () => {
+  it('preserves delegation assignment identity and raw delegated receipt data', () => {
+    const block = create(BlockSchema, { transactions: {
+      delegatedVotingTxns: [{ base: { hash: hash32(0x08) }, delegateVotes: [{
+        address: hash32(0x09), contracts: [{ contractId: 'fixture-contract', priority: 1 }]
+      }] }],
+      txnFeesAndStatus: [{ txnHash: hash32(0x08), status: TXN_STATUS.OK,
+        delegatedData: [{ address: hash32(0x09), fee: { contractId: 'fixture-fee', amount: '9007199254740993' } }] }]
+    } });
+    const [assignment] = listBlockTransactions(block);
+    expect(assignment).toMatchObject({ list: 'delegatedVotingTxns', type: TRANSACTION_TYPE.DELEGATED_VOTING_TYPE, hash: hex32(0x08) });
+    expect(assignment!.txn).toBe(block.transactions!.delegatedVotingTxns[0]);
+    const result = findTransactionResult(block, hex32(0x08));
+    expect(result?.raw.delegatedData).toEqual(block.transactions!.txnFeesAndStatus[0]!.delegatedData);
+    expect(result?.raw.delegatedData[0]?.fee?.amount).toBe('9007199254740993');
+  });
+
   it('flattens every list in TXNS field order with types and hex hashes', () => {
     const txns = listBlockTransactions(makeBlock());
     expect(txns.map(t => [t.list, t.type, t.hash])).toEqual([
@@ -302,6 +318,20 @@ describe('listBlockTransactions', () => {
 });
 
 describe('toTransactionResult', () => {
+  it.each([undefined, new Uint8Array(32).fill(0x42)])('preserves optional escrow payer bytes through wire decoding and block lookup (%s)', payer => {
+    const raw = create(TXNStatusFeesSchema, {
+      txnHash: hash32(0x07), status: TXN_STATUS.OK, proposalIdentifier: 17n,
+      ...(payer === undefined ? {} : { proposalEscrowPayerWallet: payer })
+    });
+    const decoded = fromBinary(TXNStatusFeesSchema, toBinary(TXNStatusFeesSchema, raw));
+    const result = toTransactionResult(decoded);
+    expect(result.raw.proposalEscrowPayerWallet).toEqual(payer);
+    expect(result.raw).toBe(decoded);
+    expect(result.proposalIdentifier).toBe(17n);
+    const block = create(BlockSchema, { transactions: { txnFeesAndStatus: [decoded] } });
+    expect(findTransactionResult(block, hex32(0x07))?.raw.proposalEscrowPayerWallet).toEqual(payer);
+  });
+
   it('maps an OK record without optional fields', () => {
     const raw = create(TXNStatusFeesSchema, {
       txnHash: hash32(0xee),
@@ -360,8 +390,13 @@ describe('toTransactionResult', () => {
   });
 
   it('throws on a malformed fee string', () => {
-    const raw = create(TXNStatusFeesSchema, { txnHash: hash32(1), baseFees: '1.5' });
+    const raw = create(TXNStatusFeesSchema, { txnHash: hash32(1), status: TXN_STATUS.OK, baseFees: '1.5' });
     expect(() => toTransactionResult(raw)).toThrow('baseFees is not an unsigned integer');
+  });
+
+  it('requires explicit status presence even when the enum default is OK', () => {
+    const raw = create(TXNStatusFeesSchema, { txnHash: hash32(1) });
+    expect(() => toTransactionResult(raw)).toThrow(/status is missing/u);
   });
 });
 
@@ -384,6 +419,18 @@ describe('findTransactionResult', () => {
     expect(findTransactionResult(block, hex32(0x02))).toBeUndefined(); // tx present but no result record
     expect(findTransactionResult(block, hex32(0x99))).toBeUndefined();
     expect(findTransactionResult(create(BlockSchema, {}), hex32(0x01))).toBeUndefined();
+  });
+
+  it('ignores hash-only rows and finds a later receipt with an explicit status', () => {
+    const incomplete = create(BlockSchema, {
+      transactions: { txnFeesAndStatus: [{ txnHash: hash32(1) }] }
+    });
+    expect(findTransactionResult(incomplete, hex32(1))).toBeUndefined();
+    expect(summarizeBlock(incomplete).results).toEqual([]);
+    incomplete.transactions!.txnFeesAndStatus.push(create(TXNStatusFeesSchema, {
+      txnHash: hash32(1), status: TXN_STATUS.OK
+    }));
+    expect(findTransactionResult(incomplete, hex32(1))?.success).toBe(true);
   });
 });
 

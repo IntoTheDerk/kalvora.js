@@ -22,9 +22,13 @@ unsigned bytes to a browser wallet, a WalletConnect session, a hardware device
 or any signer you write.
 
 > **Alpha.** The version is `0.0.x`, and any release may change any API. Pin an
-> exact version (`npm install kalvora.js@0.0.1-alpha.2`), test on protonet
+> exact reviewed version or Git commit, test on protonet
 > before anything touches real funds, and please
 > [report issues](https://github.com/IntoTheDerk/kalvora.js/issues).
+
+This source is the unpublished `0.0.1-alpha.3` review candidate for the breaking
+clean-genesis protocol. Published `alpha.2` predates these changes; install this
+candidate by an exact reviewed Git commit, as described in [CONTRIBUTING](./CONTRIBUTING.md).
 
 ## Contents
 
@@ -48,7 +52,7 @@ or any signer you write.
 | | |
 |---|---|
 | **Wallets** | BIP-39 mnemonics, HD derivation (standard SLIP-0010 for Ed25519, Kalvora's own scheme for Ed448), addresses and public key identifiers. Available on its own as `kalvora.js/wallet`, with no network code. |
-| **Transactions** | Typed `build → sign → send` for every protocol transaction type: coin transfers, minting, contracts, items (NFT/SBT), governance proposals and votes, allowances, delegated voting, compliance, quash/revoke, expense ratios, smart contracts and validator operations. |
+| **Transactions** | Typed `build → sign → send` for every protocol transaction type: coin transfers, minting, contracts, items (NFT/SBT), governance proposals and votes, allowances, delegated voting, compliance, revoke, expense ratios, smart contracts and validator operations. |
 | **Queries** | `KalvoraQueryClient` for every client-facing read RPC (balances, nonces, contracts, fees, supply, blocks, proposals, smart-contract events), plus validator and guardian clients. Amounts are `bigint`s; failures are structured `KalvoraRpcError`s. |
 | **Workflows** | `KalvoraClient.submitAndWait`, offline and deterministic building, external signers, wallet adapters (injected provider, deep links, WalletConnect v2). |
 | **Use cases** | Staking, validator bootstrapping, DEX pools and swaps, the Kalvora ↔ Solana bridge, and an indexer-backed smart swap. |
@@ -88,9 +92,15 @@ code; use the narrow ESM entries to avoid loading it.
 Create a wallet, check its balance, and send a transfer that waits for block
 inclusion:
 
+Configure the exact target chain ID before building or signing: `kal_proto`
+for Stablenet and `kal_main` for Mainnet. These are wire identifiers, not
+labels to hash or pad. The SDK has no default and does not learn the target
+ID from an incoming transaction.
+
 ```typescript
 import {
   KalvoraClient,
+  configureTransactionContext,
   createWallet,
   generateMnemonicPhrase,
   createCoinTXN,
@@ -98,6 +108,8 @@ import {
   KEY_TYPE,
   KALVORA_NATIVE_TOKEN
 } from 'kalvora.js';
+
+configureTransactionContext({ chainId: ifcConfiguredChainId });
 
 // 1. Wallet: standard Kalvora address (base58 of the raw public key)
 const wallet = await createWallet({
@@ -125,8 +137,16 @@ console.log(result.success ? `included in block ${result.blockHeight}` : result.
 wallet.secureClear(); // wipe key material when you are done
 ```
 
-`submitAndWait` resolves once the transaction is in a block; check
-`result.success`, because inclusion does not mean the transaction succeeded.
+`submitAndWait` resolves when a block contains a matching processing receipt
+with an explicit status. Check `result.success` to determine execution success.
+Verify the block's finality evidence separately before treating it as confirmed.
+
+**Clean-genesis migration:** all signers now require the pinned chain ID,
+signature domain, and concrete transaction type before signing. Rebuild and
+re-sign old transactions; Quash and delayed-key fields are retired, and
+smart-contract spending requires explicit per-token allowances. See
+[signing and offline/multisig workflows](./src/sign/README.md) and
+[smart-contract allowances](./src/smart-contracts/README.md).
 
 ## Wallets and keys
 
@@ -195,15 +215,19 @@ which exports the same functions.
 ### Native entry: `kalvora.js/native`
 
 `kalvora.js/native` is ESM-only and exports the existing native client,
-governance proposal/vote builders, proposal submission, stage-fee arithmetic,
+governance proposal/vote builders, delegation assignment build/create/send,
+proposal submission, stage-fee arithmetic,
 serialization, address and contract validation, RPC errors, enums, and their
 types and SDK `VERSION`. It also exposes `UniversalFeeCalculator` for callers
 supplying explicit native fee metadata. It has no Solana bridge import; network
 operations still use the same SDK implementations and configuration.
 
 ```typescript
-import { KalvoraClient, buildVoteTXN, serializeTransaction } from 'kalvora.js/native';
-import type { GRPCConfig, ProposalConstructionContext } from 'kalvora.js/native';
+import { KalvoraClient, buildVoteTXN, serializeTransaction, configureTransactionContext } from 'kalvora.js/native';
+import type { GRPCConfig, ProposalConstructionContext, TransactionContext } from 'kalvora.js/native';
+
+// The operator supplies this trusted pin; never infer it from an incoming transaction.
+configureTransactionContext({ chainId: ifcConfiguredChainId });
 ```
 
 An ordinary consumer install supports this entry without Solana packages or
@@ -371,7 +395,7 @@ function carries TSDoc. Generate the API reference with `npm run docs`
 |---|---|---|
 | `kalvora.js` | The full SDK: client, queries, wallets, signing, every transaction builder, adapters, use cases, raw protobuf bindings (`proto`) | ESM, CommonJS, React Native, types |
 | `kalvora.js/wallet` | Wallets and keys only: mnemonics, HD derivation, key pairs, addresses. No network or protobuf code | ESM, types |
-| `kalvora.js/native` | Native client and governance operations, encoding, validation and fee calculation; no optional Solana bridge import | ESM, types |
+| `kalvora.js/native` | Native client and governance, trusted signing context, encoding, validation and fees; no Solana imports | ESM, types |
 
 Every public API is exported from one of these entry points; deep imports
 into `dist/` are not supported.

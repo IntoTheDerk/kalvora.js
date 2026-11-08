@@ -28,7 +28,7 @@ import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.
 import { signWithKey } from '../../sign/finalize.js';
 import type { GRPCConfig } from '../../types/index.js';
 import type { CreateContractOptions } from '../shared/types.js';
-import { validateKeyPair, validateCreateContractOptions, validatePremintWallets } from '../shared/utils.js';
+import { validateKeyPair, validateCurrentContractFields, validateCreateContractOptions, validatePremintWallets } from '../shared/utils.js';
 
 // ============================================================================
 // TYPES
@@ -136,6 +136,7 @@ function resolveContractId(options: BuildContractOptions): string {
 export async function buildContractTXN(
   options: BuildContractOptions
 ): Promise<InstrumentContract> {
+  validateCurrentContractFields(options);
   if (!options.publicKeyBase58Identifier) throw new Error('Public key identifier is required');
   const contractId = resolveContractId(options);
   validateCreateContractOptions({
@@ -184,7 +185,7 @@ export async function buildContractTXN(
   if (options.memo) baseParams.memo = options.memo;
   if (options.feeId !== undefined) baseParams.feeId = options.feeId;
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
-  const base = buildStandardBaseTXN(baseParams);
+  const base = buildStandardBaseTXN(baseParams, 'kal_txn.InstrumentContract');
 
   const contractData: Record<string, unknown> = {
     base, contractVersion: options.contractVersion, symbol: options.symbol,
@@ -201,7 +202,6 @@ export async function buildContractTXN(
   if (!itemCollection && options.coinDenomination) contractData.coinDenomination = options.coinDenomination;
   if (options.customParameters?.length) contractData.customParameters = options.customParameters;
   if (!itemCollection && options.expenseRatio?.length) contractData.expenseRatio = options.expenseRatio;
-  if (options.quashThreshold !== undefined) contractData.quashThreshold = options.quashThreshold;
   if (options.tokenCompliance?.length) contractData.tokenCompliance = options.tokenCompliance;
   if (options.maxSupplyRelease?.length) contractData.maxSupplyRelease = options.maxSupplyRelease;
 

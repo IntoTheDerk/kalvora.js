@@ -21,7 +21,7 @@ import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.
 import { signWithKey } from '../../sign/finalize.js';
 import type { GRPCConfig } from '../../types/index.js';
 import type { UpdateContractOptions } from '../shared/types.js';
-import { validateKeyPair, validateUpdateContractOptions } from '../shared/utils.js';
+import { validateKeyPair, validateCurrentContractFields, validateUpdateContractOptions } from '../shared/utils.js';
 
 // ============================================================================
 // TYPES
@@ -57,6 +57,7 @@ export type BuildContractUpdateOptions = Omit<UpdateContractOptions, 'privateKey
 export async function buildContractUpdateTXN(
   options: BuildContractUpdateOptions
 ): Promise<ContractUpdateTXN> {
+  validateCurrentContractFields(options);
   validateUpdateContractOptions({ contractId: options.contractId, contractVersion: options.contractVersion });
   if (!options.publicKeyBase58Identifier) throw new Error('Public key identifier is required');
   generateAddressFromPublicKey(options.publicKeyBase58Identifier);
@@ -76,7 +77,7 @@ export async function buildContractUpdateTXN(
   if (options.memo) baseParams.memo = options.memo;
   if (options.feeId !== undefined) baseParams.feeId = options.feeId;
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
-  const base = buildStandardBaseTXN(baseParams);
+  const base = buildStandardBaseTXN(baseParams, 'kal_txn.ContractUpdateTXN');
 
   const updateData: Record<string, unknown> = { base, contractId: options.contractId, contractVersion: options.contractVersion };
   if (options.name) updateData.name = options.name;
@@ -88,7 +89,6 @@ export async function buildContractUpdateTXN(
   if (options.tokenCompliance?.length) updateData.tokenCompliance = options.tokenCompliance;
   if (options.kycStatus !== undefined) updateData.kycStatus = options.kycStatus;
   if (options.immutableKycStatus !== undefined) updateData.immutableKycStatus = options.immutableKycStatus;
-  if (options.quashThreshold !== undefined) updateData.quashThreshold = options.quashThreshold;
 
   const updateTxn = create(ContractUpdateTXNSchema, updateData);
   const effectiveFeeId = options.feeId || KALVORA_NATIVE_TOKEN;
