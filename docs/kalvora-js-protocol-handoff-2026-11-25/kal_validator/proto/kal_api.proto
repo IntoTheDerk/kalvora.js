@@ -1,0 +1,371 @@
+syntax = "proto3";
+
+import "google/protobuf/empty.proto";
+import "google/protobuf/timestamp.proto";
+import "txn.proto";
+import "validator.proto";
+
+package kal_api;
+
+option optimize_for = SPEED;
+
+service APIService{
+    rpc Balance(BalanceRequest) returns (BalanceResponse);
+    rpc Nonce(NonceRequest) returns (NonceResponse);
+    rpc GetSigningWallet(SigningWalletRequest) returns (SigningWalletResponse);
+    rpc ContractFee(ContractFeeRequest) returns (ContractFeeResponse);
+    rpc BaseFee(BaseFeeRequest) returns (BaseFeeResponse);
+    rpc GetTokenFeeInfo(TokenFeeInfoRequest) returns (TokenFeeInfoResponse);
+    rpc Items(ItemRequest) returns (ItemResponse);
+    rpc Denomination(DenominationRequest) returns (DenominationResponse);
+    rpc Database(DatabaseRequest) returns (DatabaseResponse);
+    rpc Block(BlockRequest) returns (BlockResponse);
+    rpc ProposalLedger(ProposalLedgerRequest) returns (ProposalLedgerResponse);
+    rpc ProposalDetail(ProposalDetailRequest) returns (ProposalDetailResponse);
+    rpc SmartContractActivityRequest (ActivityRequest) returns (google.protobuf.Empty);
+    rpc SmartContractEvents(SmartContractEventsResponse) returns (google.protobuf.Empty);
+    rpc Contract(ContractRequest) returns (ContractResponse);
+    rpc SmartContractEventsSearch(SmartContractEventsSearchRequest) returns (SmartContractEventsSearchResponse);
+    rpc TotalBalance(TotalBalanceRequest) returns (TotalBalanceResponse);
+    rpc GetAllAuthorizedFees(google.protobuf.Empty) returns (GetAllAuthorizedFeesResponse);
+}
+
+message SigningWalletRequest {
+    bytes wallet_address = 1;
+}
+message SigningWalletResponse {
+    // An absent identity means the address has no finalized signing registration.
+    oneof identity {
+        kal_txn.FalconPublicKey falcon = 1;
+        kal_txn.WalletPolicy policy = 2;
+    }
+    optional kal_txn.WalletHash policy_hash = 3;
+}
+message GetAllAuthorizedFeesResponse{
+    repeated AuthorizedFee authorized_fees = 1;
+}
+message AuthorizedFee{
+    string contract_id = 1;
+    string allowed_fees = 2;
+    string used_fees = 3;
+}
+
+enum CONFIRMATION_LEVEL{
+    PROCESSED = 0;
+    FINALIZED = 1;
+    CONFIRMED = 2;
+}
+
+enum DATABASE_TYPE{
+    UNKNOWN = 0;
+    CONTRACTS = 1;
+    HASH_INDEX = 2;
+    CONTRACT_SUPPLY = 3;
+    SMART_CONTRACTS = 4;
+    VALIDATORS = 5;
+    BLOCKS = 6;
+    HEADERS = 7;
+    TRANSACTIONS = 8;
+    CONTRACT_ITEMS = 9;
+    VALIDATOR_UNBONDING = 10;
+    PROPOSAL_LEDGER = 11;
+    PROPOSALS = 12;
+    CURRENCY_EQUIVALENTS = 13;
+    EXPENSE_RATIO = 14;
+    ATTESTATION = 15;
+    CONFIRMED_BLOCKS = 16;
+}
+
+enum PROPOSAL_TYPE{
+    ALL_PROPOSALS = 0;
+    ALL_LEDGERS = 1;
+    PROPOSAL_BY_ID = 2;
+    LEDGER_BY_ID = 3;
+}
+
+//TOTAL BALANCE
+message TotalBalanceRequest{
+    bytes wallet_address = 1;
+    bool encoded = 2;
+}
+message TotalBalanceResponse{
+    repeated BalanceResponse balances = 1;
+}
+//PROPOSAL LEDGER
+message ProposalLedgerRequest{
+    DATABASE_TYPE type = 1;
+    string key = 2; //proposal_id or ledger_id
+}
+message ProposalLedgerResponse{
+    repeated string ledger_keys = 1; //proposal_id or ledger_id
+    repeated string ledger_values = 2; //string of proposal ledger
+    repeated string proposal_keys = 3; //proposal_id or ledger_id
+    repeated string proposal_values = 4; //string of proposal ledger
+    repeated string wallets_keys = 5; //proposal_id or ledger_id
+    repeated string wallets_values = 6;
+    repeated string temp_keys = 7; 
+    repeated string temp_values = 8; 
+    repeated string voted_keys = 9; 
+    repeated string voted_values = 10; 
+    repeated ProposalStatus proposal_statuses = 11;
+}
+message ProposalStatus{
+    bytes proposal_id = 1;
+    kal_validator.Proposal proposal = 2;
+    optional kal_txn.PreGovernance pre_governance = 3;
+    bool promotion_pending = 4;
+    repeated kal_txn.PreGovernance pre_governance_stages = 5; //Effective ordered list, including legacy singleton
+    optional uint32 pre_governance_stage = 6; //Active zero-based step while phase is PRE_GOVERNANCE
+    uint32 pre_governance_stage_count = 7;
+    repeated kal_txn.PreGovernance post_governance_stages = 8;
+    optional uint32 post_governance_stage = 9;
+    uint32 post_governance_stage_count = 10;
+    optional kal_txn.PreGovernance post_governance = 11; //Current entry while phase is POST_GOVERNANCE
+}
+
+// Bounded typed read of one active proposal. Voter pages follow the immutable
+// whitelist order; the full proposal/actions and legacy Base58 blobs are omitted.
+message ProposalDetailRequest{
+    bytes proposal_id = 1; // Raw 32-byte proposal hash, not Base58 or hex text.
+    uint32 voter_offset = 2;
+    uint32 page_size = 3; // Zero selects 100; maximum 1000.
+    bytes expected_state_digest = 4; // Optional SHA256 from a previous page.
+}
+message GranularProposalDetail{
+    uint32 threshold = 1;
+    uint32 regular_quorum = 2;
+    optional string voting_instrument = 3;
+    uint32 whitelist_size = 4;
+    uint32 participant_count = 5; // Includes recorded zero-weight votes.
+    bool closed = 6; // Decision inputs frozen; a committed result is separate.
+    uint64 closed_seconds = 7;
+    string yes_weight = 8;
+    string no_weight = 9;
+    repeated string option_weights = 10; // Includes against at index zero.
+    bool result_ready = 11; // Pending processing, not committed finality.
+}
+message GranularVoterStatus{
+    bytes wallet = 1; // Exact canonical identity, including supported wider forms.
+    optional kal_validator.GranularVote vote = 2;
+}
+message ProposalDetailResponse{
+    bytes proposal_id = 1;
+    string contract_id = 2;
+    google.protobuf.Timestamp start = 3;
+    google.protobuf.Timestamp end = 4;
+    bool options_set = 5;
+    uint32 number_of_options = 6;
+    kal_validator.PROPOSAL_PHASE phase = 7;
+    uint32 stage = 8;
+    optional GranularProposalDetail granular = 9;
+    repeated GranularVoterStatus voters = 10;
+    uint32 voter_offset = 11;
+    uint32 next_voter_offset = 12;
+    bool has_more = 13;
+    bytes state_digest = 14;
+    repeated kal_txn.PreGovernance pre_governance_stages = 15;
+    optional uint32 pre_governance_stage = 16;
+    bool promotion_pending = 17;
+    repeated kal_txn.PreGovernance post_governance_stages = 18;
+    optional uint32 post_governance_stage = 19;
+    optional uint32 post_governance_winning_option = 20;
+}
+//Block
+message BlockRequest{
+    oneof payload{
+    uint64 block_height = 1;
+    string block_hash = 2;
+    }
+    bool encoded = 3;
+}
+
+message BlockResponse{
+    kal_validator.Block block = 1;
+}
+//NONCE
+message NonceRequest{
+    bytes wallet_address = 1;
+    bool encoded = 3;
+}
+
+message NonceResponse{
+    uint64 nonce = 1;
+}
+
+//BALANCE
+message BalanceRequest{
+    bytes wallet_address = 1;
+    string contract_id = 2;
+    bool encoded = 3;
+}
+message BalanceResponse{
+    string balance = 1;
+    string denomination = 2;
+    string rate = 3;            //1000000000000000000 = $1.00 (1,000,000,000,000,000,000)
+}
+
+//CONTRACT
+message ContractRequest{
+    string contract_id = 1;
+}
+
+message ContractResponse
+{
+    kal_txn.InstrumentContract contract = 1;
+    google.protobuf.Timestamp timestamp = 2;
+    kal_txn.PublicKey public_key = 3;
+    bytes signature = 4;
+}
+
+//CONTRACT FEE
+message ContractFeeRequest{
+    string contract_id = 1;
+}
+
+message ContractFeeResponse{
+    kal_txn.CONTRACT_FEE_TYPE contract_fee_type = 1; 
+    repeated string allowed_fee_instrument = 2;
+    string fee = 3;
+}
+
+
+//BASE FEE
+message BaseFeeRequest{
+    optional kal_txn.PublicKey public_key = 1;
+    kal_txn.TRANSACTION_TYPE txn_type = 2;
+    // The single registered sponsor, or the operational co-signer of a validator assignment.
+    optional kal_txn.PublicKey additional_signer = 3;
+}
+message BaseFeeResponse{
+    string key_fee = 1;     //1000000000000000000 = $1.00 (1,000,000,000,000,000,000)
+    string byte_fee = 2;    //1000000000000000000 = $1.00 (1,000,000,000,000,000,000)
+    string new_wallet_fee = 3; //1000000000000000000 = $1.00 (1,000,000,000,000,000,000)
+}
+
+
+//AUTHORIZED TOKEN
+message TokenFeeInfo{
+    string contract_id = 1;
+    string rate = 2;        //1000000000000000000 = $1.00 (1,000,000,000,000,000,000)
+    bool authorized = 3;
+    string denomination = 4;
+    optional kal_txn.ContractFees contract_fees = 5;
+    string allowed_fees = 6;
+    string used_fees = 7;
+}
+message TokenFeeInfoRequest{
+    repeated string contract_ids = 1;
+}
+message TokenFeeInfoResponse{
+    repeated TokenFeeInfo tokens = 1;
+}
+
+
+//ITEM BALANCE
+message Item{
+    string contract_id = 1;
+    string item_id = 2;
+}
+message ItemRequest{
+    bytes wallet_address = 1;
+    bool encoded = 2;
+}
+
+message ItemResponse{
+    repeated Item items = 1;
+}
+
+//DENOMINATION
+message DenominationRequest{
+    string contract_id = 1;
+}
+
+message DenominationResponse{
+    string denomination = 1;
+}
+
+//DATABASE
+message DatabaseRequest{
+    DATABASE_TYPE type = 1;
+    string key = 2;
+}
+
+message DatabaseResponse{
+    string value = 1;
+    // Database is a raw diagnostic read; value is not certified history.
+    bool diagnostic_unverified = 2;
+}
+
+message ActivityRequest{
+    string smart_contract_id = 1;
+    uint64 instance = 2;
+    CONFIRMATION_LEVEL level = 3;
+    string host = 4;
+    int32 port = 5;
+    bool subscribe = 6; //true = subscribe, false = unsubscribe
+    kal_txn.PublicKey public_key = 7;
+    bytes signature = 8;
+    uint64 nonce = 9;
+}
+message SmartContractEventsResponse{
+    string smart_contract = 1; //
+    uint64 instance = 2; //
+    uint64 gas_used = 3; //
+    uint64 gas_approved = 4; //
+    string storage_fee = 5; //
+    kal_txn.PublicKey caller = 6; //
+    repeated string event_data = 7; //
+    string function = 8; //
+    uint64 block_height = 9; //
+    google.protobuf.Timestamp timestamp = 10; // block timestamp
+    string block_hash = 11; //
+    string txn_hash = 12; //in hex string
+    kal_txn.PublicKey public_key = 13; // validator public key
+    bytes signature = 14; // validator signature
+
+}
+
+message SmartContractEventsSearchRequest{
+    string smart_contract_id = 1;
+    google.protobuf.Timestamp search_start = 2;
+    // Paging is opt-in. A zero page_size keeps the legacy all-or-error result.
+    uint32 page_size = 3;
+    bytes page_cursor = 4;
+}
+
+message SmartContractEventsSearchResponse{
+    repeated SmartContractEventsResponse events = 1;
+    // Empty means this page is complete. The cursor binds to one index version.
+    bytes next_page_cursor = 2;
+    // Paged clients must compare this signed digest with their exact request.
+    bytes request_digest = 3;
+    kal_txn.PublicKey public_key = 13; // validator public key
+    bytes signature = 14; // validator signature
+}
+message SmartContractEventManagementTemp{
+    repeated string event_keys = 1;
+    repeated string smart_contract_ids = 2;
+}
+message SmartContractEventManagement{
+    map<string, google.protobuf.Timestamp> events = 1;
+    // Changes when a block commits events for this contract, even if a reorg
+    // replays the same transaction keys and timestamps with different bodies.
+    bytes last_update_block_hash = 2;
+}
+
+message SmartContractSubscription{
+    map<string, Subscriber> subscibers = 1;
+}
+
+message Subscriber{
+    CONFIRMATION_LEVEL level = 1;
+    string host = 2;
+    int32 port = 3;
+}
+
+message WalletChange{
+    bytes wallet_address = 1;
+    repeated string contract_ids = 2;
+    repeated string old_balances = 3;
+    repeated string new_balances = 4;
+}
