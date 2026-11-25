@@ -1,0 +1,18 @@
+syntax = "proto3";
+
+import "txn.proto";
+
+package kal_wallets;
+
+option optimize_for = SPEED;
+
+message MaxSupply{
+	string max_supply = 1;
+	string circulation = 2;
+	repeated kal_txn.MaxSupplyRelease release = 3;
+}
+
+message DerivedWallets
+{
+	map<string, bool> wallets = 1; // key = base58-encoded wallet address, value = smart contract store key
+}
