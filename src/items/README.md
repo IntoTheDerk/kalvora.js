@@ -38,3 +38,7 @@ metadata are on the contract-item record:
 ```typescript
 const item = await query.getContractItem(itemId, contractId);
 ```
+
+## Registered recipients
+
+Itemized mints accept `safeSend: true` when the recipient must be registered in the finalized parent. NFT transfers reject this option. Pass the selected Base58 wallet address for a Falcon signer.

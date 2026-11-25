@@ -7,6 +7,7 @@
 import { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import type { KalvoraGuardianPayload } from '../../../../protocol/guardian-names.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import {
   createSmartContractExecuteTXN,
   ParamType,
@@ -89,7 +90,7 @@ export async function createBridgeTransaction(
   functionName: string,
   parameterValue: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   feeId: string,
   options: BridgeKalvoraOptions
 ): Promise<SmartContractExecuteTXN> {

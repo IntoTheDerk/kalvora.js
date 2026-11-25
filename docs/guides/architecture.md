@@ -5,9 +5,7 @@ group: Guides
 
 # Architecture
 
-This guide explains how the SDK is laid out, how it talks to the network, and
-how the protocol definitions flow from `kalvora-indexer` into typed
-TypeScript.
+The SDK builds and signs protobuf messages for the fresh-genesis Kalvora protocol, submits them over gRPC-Web, and reads finalized wallet, transaction and governance state.
 
 ## Layers
 
@@ -22,7 +20,7 @@ TypeScript.
 ├───────────────────────────────┴──────────────────────────────────────┤
 │ shared/tx/standard  BaseTXN envelope, nonce, fees, input parsing     │
 │ shared/fee-calculators  base / contract / interface fee computation  │
-│ sign/  signWithKey, signAndFinalize, KalvoraSigner                   │
+│ sign/  registered single-key and policy proofs, sponsor, signed hash │
 ├──────────────────────────────────────────────────────────────────────┤
 │ grpc/  createClient (gRPC-Web transport, Envoy paths, KalvoraRpcError)│
 ├──────────────────────────────────────────────────────────────────────┤
@@ -30,24 +28,20 @@ TypeScript.
 └──────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Builders** are standalone, tree-shakeable functions. Each transaction type
-  lives in its own folder (`src/mint`, `src/allowance`, …) and exposes the same
-  three steps:
+- **Builders** live in transaction-specific modules such as `src/mint` and `src/allowance`. A typical module offers three operations.
   - `buildXTXN(input, options)` — unsigned protobuf message (may query the
     network for nonce and fees),
-  - `createXTXN(input, privateKey, options)` — build + sign,
+  - `createXTXN(input, signer, options)` — build and sign with a registered wallet,
   - `sendXTXN(txn, grpcConfig)` — submit, returns the hex hash.
 - **Query clients** turn protobuf responses into plain values (`bigint`
   amounts, base58 addresses, hex hashes, `Date`s) and throw
   `KalvoraRpcError` on failure.
-- **`KalvoraClient`** ties one network configuration to the query clients and
-  submission, and implements *submit → wait for inclusion*.
+- **Wallets** hold a Falcon key and a selected address hash. A policy wallet binds permanent member slots and signing rules to its own address. A finalized registration maps each address to its signing identity.
+- **`KalvoraClient`** ties one endpoint configuration to query clients, submission and matching receipts. Applications supply their trusted chain ID and a finality verifier.
 
 ## Transport
 
-The SDK uses [ConnectRPC](https://connectrpc.com) with the **gRPC-Web** binary
-protocol over `fetch`, so the same code runs in Node.js (≥ 20), browsers, and
-React Native.
+The SDK uses the ConnectRPC binary gRPC-Web transport over `fetch`. Node.js requires 20.19 or later. The standalone Falcon wallet was exercised in Node.js 24 and Microsoft Edge. React Native wallet and provider integrations require runtime-specific verification.
 
 Kalvora nodes sit behind Envoy, which exposes short paths instead of the fully
 qualified protobuf service names. `createClient` rewrites request URLs
@@ -100,57 +94,34 @@ client) rather than in a transport interceptor, because ConnectRPC re-wraps
 exceptions thrown by interceptors as `Code.Unknown`, which would erase the
 server's status code.
 
-## Transactions
+## Transaction identity and signing
 
-All transactions except `CoinTXN` share a single-signer `BaseTXN` envelope,
-built by `buildStandardTransaction` in `src/shared/tx/standard.ts`:
+1. Obtain `kal_main` or `kal_proto` and its trusted final block-zero hash from the operator. `deriveChainId` computes SHA-256 over the UTF-8 bytes of `KAL_CHAIN_ID_V2|<network>|` followed by the 32 raw genesis hash bytes. Builders set this chain ID, the signature domain and the concrete transaction type before sizing or signing.
+2. Select the Base58 wallet address. Ordinary external signers use the complete raw address in `PublicKey.wallet_address`. Registration carries the raw Falcon key or policy descriptor. A wallet registered in block H can spend in H+1. Each address has its own committed nonce and balances.
+3. Resolve the next nonce and calculate an authorized fee cap. Automatic quotes size the completed protobuf, including address widths, the selected padded Falcon proofs or policy witnesses, sponsor fields when applicable and the final hash. Coin uses its authorization slots for nonces.
+4. Sign the canonical protobuf. `getTransactionSigningBytes` prepares the owner preimage with signatures, witnesses, hash and fee payer cleared. A single-key owner uses `base.signature`; a policy uses `wallet_address` and witnesses in ascending permanent slot order. `signCoinTXN` signs each Coin authorization slot over the same preimage. A policy slot has an empty signature entry with witnesses on its key.
+5. Where sponsorship is supported, `countersignTransaction` attaches a distinct registered single-key fee payer and its nonce. The sponsor signs the owner-approved transaction with the sponsor signature and hash cleared. Validator assignments have separate owner and operational proofs.
+6. Hash the complete signed protobuf using SHA3-256 with only `base.hash` cleared. The hash identifies those signed bytes, including every proof. A new randomized Falcon signature changes the transaction ID.
 
-1. validate the signer's public key identifier and shared options,
-2. resolve the nonce (`options.nonce` or `APIService.Nonce + 1`),
-3. build `BaseTXN` (timestamp, fee instrument, memo, `safe_send`),
-4. create the protobuf message from the type-specific fields,
-5. compute base and interface fees unless `feeAmountParts` is given,
-6. assert the result carries no signature material.
+Historical Ed25519 and Ed448 wallet and signing APIs remain available for older records. New user envelopes on the fresh-genesis protocol require registered addresses. [Wallet adapter integration](../adapter-integration-guide.md)
 
-Signing (`signWithKey` / `signAndFinalize`) serialises the unsigned message,
-signs it (Ed25519 or Ed448, chosen from the key identifier), stores the
-signature in `base.signature`, then hashes the signed bytes (SHA3-256) into
-`base.hash`. The hash is the transaction ID returned by `send*`.
+### Offline construction
 
-`CoinTXN` is multi-input: each input has its own key, nonce, and signature in
-`TransferAuthentication`; see `signCoinTXN` / `signCoinTXNWithKeys`.
-
-### Deterministic / offline construction
-
-Pass both `nonce` and `feeAmountParts` to any standard builder and it makes no
-network calls. Combined with a fixed `timestamp`, the unsigned bytes are fully
-deterministic — useful for cold signing, hardware wallets, and golden tests.
+For offline standard envelopes, supply the trusted chain context, exact next nonce, fee cap and timestamp. Individual builders may also need token denomination, instrument or governance settings, or other state normally read from the network. A fixed set of inputs gives deterministic unsigned bytes. Keep the signed bytes and hash for reconciliation after a submission timeout. [Worked examples](./transactions.md)
 
 ## Protocol definitions
 
-The official Kalvora protos (`txn.proto`, `validator.proto`, `kal_api.proto`;
-packages `kal_txn`, `kal_validator`, `kal_api`) are the source of truth for the
-wire protocol. They are committed to `proto/` byte-identical to the release,
-without repo-local options: the Go `go_package` option is supplied by `buf`
-managed mode and TypeScript generation needs none. `guardian.proto` (the
-guardian service's own package) is not part of the official release and is
-kept as-is.
+This migration targets validator build **200030**, attestation protocol **33**, with Wasm preparation gas enabled. The public `txn.proto`, `validator.proto` and `kal_api.proto` in the November 25 handoff match `w-tw/kal-network` commit `daa5938f94c0f24c155269944b0dd02a7b3ae4e6`. The format-2 genesis schema, launch profile and chain-ID changes come from the validator working tree represented by the handoff. The operator supplies the actual deployment profile and genesis pin. [Protocol handoff](../kalvora-js-protocol-handoff-2026-11-25/documents/howto/kalvora_js_protocol_handoff.md)
 
-`proto:sync` accepts either the official flat release directory or a
-kalvora-indexer `proto/` checkout (per-package folders such as
-`proto/txn/txn.proto`, whose nested imports are rewritten to the flat layout).
-kalvora-indexer adds a `go_package` option to each file, so a check against an
-indexer checkout reports drift for those lines; check against the official
-release.
+The SDK tracks those three public schemas under `proto/`. The guardian service owns `guardian.proto` separately. The existing Buf build generates all four public TypeScript modules. The handoff's storage, launch and worker IPC schemas serve validator and operator tooling.
 
 ```bash
-npm run proto:check -- --source <official-protos-dir>   # fail if proto/ differs
-npm run proto:sync  -- --source <official-protos-dir>   # copy verbatim
-npm run build:proto   # regenerate proto/generated with buf + protoc-gen-es v2
+npm run proto:sync -- --source docs/kalvora-js-protocol-handoff-2026-11-25/kal_validator/proto
+npm run proto:check -- --source docs/kalvora-js-protocol-handoff-2026-11-25/kal_validator/proto
+npm run build:proto
 ```
 
-Without `--source`, the scripts use `KALVORA_PROTO_SOURCE`, then
-`../kalvora-indexer/proto`. Generated code is git-ignored and rebuilt locally.
+Point `--source` at the matching sibling `../kal-network/kal_validator/proto` checkout to check it directly. Generated files in `proto/generated/` are git-ignored and rebuilt locally.
 
 ## Tests
 

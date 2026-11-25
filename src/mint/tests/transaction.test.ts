@@ -66,7 +66,7 @@ describe('MintTXN', () => {
     await expect(buildMintTXN(undefined as unknown as MintTXNInput, OPTIONS)).rejects.toThrow(/input object is required/);
     await expect(buildMintTXN(INPUT, { ...OPTIONS, feeId: 'bad id' })).rejects.toThrow(/feeId/);
     await expect(buildMintTXN(INPUT, { ...OPTIONS, interfaceFee: '1' })).rejects.toThrow(/provided together/);
-    await expect(buildMintTXN(INPUT, { ...OPTIONS, safeSend: true })).rejects.toThrow(/safe_send/);
+    expect((await buildMintTXN(INPUT, { ...OPTIONS, safeSend: true })).base?.safeSend).toBe(true);
   });
 
   it('signs via createMintTXN and round-trips through binary', async () => {

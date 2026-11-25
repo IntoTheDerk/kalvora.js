@@ -8,18 +8,21 @@ The signer must hold the contract's `expense_ratio` restricted-key permission. T
 import { createExpenseRatioTXN, sendExpenseRatioTXN } from 'kalvora.js';
 
 const txn = await createExpenseRatioTXN({
-  publicKey: manager.publicKey,
+  publicKey: manager.walletAddress,
   contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
-  addresses: [holder1.address, holder2.address], // non-empty, unique
-  outputAddress: treasury.address
-}, manager.privateKey);
-await sendExpenseRatioTXN(txn);
+  addresses: [holder1.walletAddress, holder2.walletAddress],
+  outputAddress: treasury.walletAddress
+}, manager, { grpcConfig: client.grpcConfig });
+await sendExpenseRatioTXN(txn, client.grpcConfig);
 ```
 
 ## Offline / deterministic building
 
+Payers must be distinct wallet addresses. The payout accepts a wallet address or the burn address `W5jE3KNH`. With an empty payer list, the output can be omitted.
+
 ```ts
 const unsigned = await buildExpenseRatioTXN(input, {
+  grpcConfig: client.grpcConfig,
   nonce: 42,
   feeAmountParts: '1000000',
   timestamp: new Date('2026-01-01T00:00:00Z')

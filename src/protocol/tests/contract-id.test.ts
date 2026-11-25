@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import contractVectors from '../../../docs/kalvora-js-protocol-handoff-2026-11-25/kal_validator/test/contract_id_vectors.json';
 import {
   CREATOR_AUTHORIZATION,
   CREATOR_KEY_ALGORITHM,
@@ -45,6 +46,26 @@ describe('genesis contract IDs', () => {
 });
 
 describe('ordinary contract IDs', () => {
+  it('rejects imprecise numeric nonces and mismatched internal authority algorithms', () => {
+    expect(() => deriveGenesisContractId(Number.MAX_SAFE_INTEGER + 1)).toThrow('Use bigint');
+    expect(() => deriveOrdinaryContractId({
+      creatorAuthorizationType: CREATOR_AUTHORIZATION.GOVERNANCE,
+      creatorKeyAlgorithm: CREATOR_KEY_ALGORITHM.ED25519,
+      creatorAuthorizationBytes: new TextEncoder().encode(`gov_${GENESIS_CONTRACT_IDS.KALV}`),
+      vanityNonce: 0n, contractDataHash: new Uint8Array(32)
+    })).toThrow('algorithm zero');
+  });
+  it.each(contractVectors.vectors)('matches the validator vector $name', vector => {
+    const result = vector.kind === 'native' ? deriveGenesisContractId(vector.vanity_nonce) : deriveOrdinaryContractId({
+      creatorAuthorizationType: vector.creator_authorization_type!,
+      creatorKeyAlgorithm: vector.creator_key_algorithm!,
+      creatorAuthorizationBytes: Buffer.from(vector.creator_authorization_hex!, 'hex'),
+      vanityNonce: vector.vanity_nonce,
+      contractDataHash: Buffer.from(vector.contract_data_hash_hex!, 'hex')
+    });
+    expect(result).toBe(vector.encoded_id);
+    expect(Buffer.from(decodeContractId(result)!.checksum).toString('hex')).toBe(vector.checksum_hex);
+  });
   it('changes when the vanity nonce or an identity field changes, and round-trips the checksum', () => {
     const hash = deriveContractDataHash({
       symbol: 'MYT',

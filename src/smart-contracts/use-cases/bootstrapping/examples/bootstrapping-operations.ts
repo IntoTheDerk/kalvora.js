@@ -1,4 +1,6 @@
 /**
+ * Historical Ed contract example. See src/smart-contracts/README.md for a registered Falcon caller, signed gas cap and token allowances.
+ *
  * Kalvora Bootstrapping Operations — Independent Examples
  *
  * Demonstrates the currently exposed bootstrapping helpers as independent calls.

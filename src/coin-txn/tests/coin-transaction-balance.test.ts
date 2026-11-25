@@ -285,6 +285,7 @@ describe('Coin Transaction Balance Validation', () => {
   describe('Allowance Transaction Balance Validation', () => {
     it('should validate balance correctly for allowance transactions', async () => {
       const inputs = [
+        { publicKey: ED25519_TEST_KEYS.alice.publicKey, privateKey: ED25519_TEST_KEYS.alice.privateKey },
         {
           allowanceAddress: TEST_WALLET_ADDRESSES.bob,
           amount: '50.00',
@@ -353,6 +354,7 @@ describe('Coin Transaction Balance Validation', () => {
 
     it('should handle multiple allowance inputs correctly', async () => {
       const inputs = [
+        { publicKey: ED25519_TEST_KEYS.alice.publicKey, privateKey: ED25519_TEST_KEYS.alice.privateKey },
         {
           allowanceAddress: TEST_WALLET_ADDRESSES.bob,
           amount: '25.50',
@@ -367,7 +369,7 @@ describe('Coin Transaction Balance Validation', () => {
 
       const outputs = [{
         to: TEST_WALLET_ADDRESSES.bob,
-        amount: '24.50', // Only one input being processed correctly
+        amount: '50.00',
         memo: 'Multiple allowances'
       }];
 

@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CoinTXNSchema, FeePayerSchema, MintTXNSchema, MultiKeySchema, TRANSACTION_TYPE, ValidatorRegistrationSchema } from '../../../proto/generated/txn_pb.js';
 import { getPublicKeyBytes } from '../../shared/crypto/address-utils.js';
 import { createTransactionHash, signTransactionData } from '../../shared/crypto/signature-utils.js';
+import { deriveChainId } from '../../shared/network/chain-id.js';
 import { buildStandardBaseTXN } from '../../shared/tx/base.js';
 import { ED25519_TEST_KEYS } from '../../test-utils/keys.test.js';
 import { assertTransactionContext, configureTransactionContext, transactionContextFields } from '../context.js';
@@ -131,7 +132,7 @@ describe('trusted V1 transaction context', () => {
     txn.generatedSignature = new Uint8Array(64).fill(9);
     const hash = new Uint8Array(txn.base!.hash!);
     finalizeTransactionHash(txn);
-    expect(txn.base!.hash).toEqual(hash);
+    expect(txn.base!.hash).not.toEqual(hash);
   });
 
   it('sponsor bytes retain sender approval and sponsor identity/nonce, then hash both signatures', () => {
@@ -164,15 +165,11 @@ describe('trusted V1 transaction context', () => {
 });
 
 
-it.each(['kal_main', 'kal_proto'])('preserves literal wire identity %s without padding or hashing', chainId => {
-  configureTransactionContext({ chainId });
-  const expected = new TextEncoder().encode(chainId);
-  const fields = transactionContextFields('MintTXN');
-  expect(fields.chainId).toEqual(expected);
-  expect(fields.chainId.length).toBe(chainId.length);
-  fields.chainId[0] ^= 1;
-  expect(transactionContextFields('MintTXN').chainId).toEqual(expected);
-  const tx = mint();
-  expect(() => assertTransactionContext(tx, { chainId })).not.toThrow();
-  expect(() => assertTransactionContext(tx, { chainId: chainId === 'kal_main' ? 'kal_proto' : 'kal_main' })).toThrow('trusted target chain');
+it('derives the settlement fixture chain ID from the final genesis pin', () => {
+  const genesisHash = '47'.repeat(32);
+  const chainId = deriveChainId('kal_main', genesisHash);
+  expect(Buffer.from(chainId).toString('hex')).toBe('11390d9b4f1de05eefed175f4f1b562caffc85258007ba8d970a3ec28d29c1de');
+  expect(deriveChainId('kal_proto', genesisHash)).not.toEqual(chainId);
+  expect(() => configureTransactionContext({ chainId: 'kal_main' })).toThrow();
+  expect(transactionContextFields('WalletRegistration', { chainId }).intendedType).toBe(25);
 });

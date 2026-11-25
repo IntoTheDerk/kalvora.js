@@ -387,10 +387,15 @@ message Vote{
 enum PROPOSAL_PHASE {
     REGULAR_GOVERNANCE = 0;
     PRE_GOVERNANCE = 1;
+    POST_GOVERNANCE = 2;
 }
 enum PRE_GOVERNANCE_OUTCOME {
     PRE_GOVERNANCE_ACTIVE = 0;
     PRE_GOVERNANCE_PROMOTION_PENDING = 1;
+}
+enum POST_GOVERNANCE_OUTCOME {
+    POST_GOVERNANCE_ACTIVE = 0;
+    POST_GOVERNANCE_COMPLETION_PENDING = 1;
 }
 message Voter{
     optional bool support = 1;
@@ -398,11 +403,21 @@ message Voter{
     bool delegated = 3;
     optional uint64 stage = 4;
     PROPOSAL_PHASE phase = 5;
+    // Last collected holding change already reflected by this ballot.
+    uint64 holding_sequence = 6;
+    // Ballot holdings already reflect item activation/expiry through this time.
+    uint64 holding_time = 7;
 }
 
 //which proposals have been voted on with this wallet.
 message VoteWallet{
     map<string, Voter> proposal_votes = 1;
+}
+message GranularVote{
+    bytes wallet = 1;
+    optional bool support = 2;
+    optional uint32 option = 3;
+    string weight = 4;
 }
 message Proposal{
     string contract_id = 1;
@@ -430,6 +445,144 @@ message Proposal{
     PRE_GOVERNANCE_OUTCOME pre_governance_outcome = 25;
     // Refund destination for any unspent proposal fee escrow on voted removal.
     optional bytes escrow_payer_wallet = 26;
+    kal_txn.GranularGovernance granular = 27;
+    repeated GranularVote granular_votes = 28;
+    bool granular_closed = 29;
+    uint64 granular_closed_seconds = 30;
+    string granular_yes = 31;
+    string granular_no = 32;
+    repeated string granular_options = 33;
+    repeated kal_txn.VotingInstrumentRatio voting_ratio = 34; //Frozen when proposal is accepted
+    optional uint64 pre_governance_transition_time = 35; //Approval commit time retained through array-step recovery
+    optional google.protobuf.Timestamp post_governance_start_date = 36;
+    optional google.protobuf.Timestamp post_governance_end_date = 37;
+    string post_governance_fee = 38;
+    POST_GOVERNANCE_OUTCOME post_governance_outcome = 39;
+    optional uint64 post_governance_transition_time = 40;
+    optional uint32 post_governance_winning_option = 41; //Frozen public choice; zero is a valid binary/default outcome
+    optional kal_txn.Governance governance_snapshot = 42; //Resolved mandatory plus proposal-added reviews, frozen at acceptance
+}
+// Small consensus projection for admission and deadline checks. Proposal
+// bodies (children, electorate and tallies) are read only when work is due.
+message ProposalAvailability {
+    bytes proposal_id = 1;
+    string contract_id = 2;
+    uint64 result_bytes = 3;
+    PROPOSAL_PHASE phase = 4;
+    bool pending_promotion = 5;
+    bool individual_deadline = 6;
+    int64 start_seconds = 7;
+    int64 end_seconds = 8;
+    bool granular = 9;
+    bool has_votes = 10;
+    bool closed = 11;
+    bytes frozen_key = 12;
+}
+// Certified phases retain one anchor through item events, holding/cleanup
+// fanout, refresh and whole-unit capture. DEADLINES/LEDGERS remain reserved.
+enum GOVERNANCE_CLOSING_PHASE {
+    GOVERNANCE_CLOSING_UNSPECIFIED = 0;
+    GOVERNANCE_CLOSING_DEADLINES = 1;
+    GOVERNANCE_CLOSING_ITEMS = 2;
+    GOVERNANCE_CLOSING_LEDGERS = 3;
+    GOVERNANCE_CLOSING_REFRESH = 4;
+    GOVERNANCE_CLOSING_INDIVIDUAL = 5;
+    GOVERNANCE_CLOSING_COHORTS = 6;
+    GOVERNANCE_CLOSING_PREPARE_SETTLEMENT = 7;
+    GOVERNANCE_CLOSING_READY = 8;
+}
+message GovernanceClosingCursor {
+    bytes after_key = 1; // Last completely processed outer row, exclusive.
+    bytes pending_key = 2; // An outer row whose bounded inner scan is unfinished.
+    bytes after_inner_key = 3; // Last completely processed inner row, exclusive.
+    bool pending_effect_applied = 4; // E.g. the current item's supply delta.
+}
+message GovernanceClosingEpoch {
+    uint32 schema_version = 1;
+    uint64 anchor_height = 2;
+    google.protobuf.Timestamp anchor_time = 3;
+    bytes anchor_parent_hash = 4;
+    bytes anchor_fee_wallet = 5;
+    GOVERNANCE_CLOSING_PHASE phase = 6;
+    GovernanceClosingCursor cursor = 7;
+    uint64 last_progress_height = 8;
+    bool capture_after_settlement = 9;
+}
+// Canonical local work, recomputed during replay; never accepted from a peer.
+message GovernanceFanoutJob {
+    enum Kind { UNSPECIFIED = 0; BALANCE = 1; ITEM = 2; CLEANUP = 3; RESULT = 4; CALENDAR = 5; CALENDAR_SCAN = 6; DELEGATED_RECAST = 7; }
+    Kind kind = 1;
+    uint64 sequence = 2;
+    bytes wallet = 3;
+    bytes proposal_id = 4;
+    string contract_id = 5;
+    string amount = 6;
+    bool add = 7;
+    NFT item = 8;
+    kal_txn.ProposalResult result = 9;
+    uint64 inclusion_time = 10;
+    uint32 calendar_stage = 11;
+    google.protobuf.Timestamp calendar_deadline = 12;
+    // Only contract/proposal/stage/pre-governance identities from the accepted
+    // block. Local replay reconstructs these; they are not peer-authorized jobs.
+    repeated kal_txn.ProposalResult calendar_results = 13;
+    // Nonzero only for scheduled item activation/expiry, not holder mutations.
+    uint64 effective_time = 14;
+    // Local, bounded continuation of a signed delegated vote; never peer input.
+    Voter delegated_choice = 15;
+    bytes delegated_departures = 16;
+    bytes delegated_additions = 17;
+    repeated string delegated_instruments = 18;
+    bytes delegated_vote_hash = 19;
+}
+// Protocol-12 canonical closing outcomes, independent of inclusion time.
+// No field here carries an inclusion-time signature.
+enum FROZEN_GOVERNANCE_KIND {
+    FROZEN_GOVERNANCE_UNSPECIFIED = 0;
+    FROZEN_GOVERNANCE_ADAPTIVE = 1;
+    FROZEN_GOVERNANCE_STAGED_CYCLE = 2;
+}
+enum FROZEN_GOVERNANCE_SETTLEMENT {
+    FROZEN_SETTLEMENT_UNSPECIFIED = 0;
+    FROZEN_SETTLEMENT_PRE_PASS = 1;
+    FROZEN_SETTLEMENT_PRE_FAIL = 2;
+    FROZEN_SETTLEMENT_INTERIM = 3;
+    FROZEN_SETTLEMENT_FINAL = 4;
+    FROZEN_SETTLEMENT_POST_PASS = 5;
+    FROZEN_SETTLEMENT_POST_FAIL = 6;
+}
+message FrozenGovernanceOutcome {
+    bytes proposal_id = 1;
+    bytes proposal_state_hash = 2;
+    bytes governed_contract_state_hash = 3;
+    PROPOSAL_PHASE phase = 4;
+    kal_txn.ProposalResult unsigned_result = 5;
+    string voting_denominator = 6; // Exact 512-bit equivalent denominator.
+    repeated kal_txn.VotePair voting_supply_at_freeze = 7; // Ascending contract ID.
+    bytes escrow_wallet = 8;
+    bytes escrow_payer_wallet = 9;
+    string fee_token_id = 10;
+    string remaining_locked_amount = 11;
+    string escrow_debit_amount = 12;
+    FROZEN_GOVERNANCE_SETTLEMENT settlement = 13;
+    string validator_fee_amount = 14;
+    string treasury_fee_amount = 15;
+    string burn_fee_amount = 16;
+    bytes treasury_wallet = 17;
+    bool post_governance_enabled = 18; //Frozen per-proposal POST presence for mixed cohort settlement
+}
+message FrozenGovernanceUnit {
+    uint32 schema_version = 1;
+    uint64 freeze_height = 2;
+    google.protobuf.Timestamp freeze_time = 3;
+    FROZEN_GOVERNANCE_KIND kind = 4;
+    bytes id = 5; // Raw proposal ID, or canonical contract ID text.
+    uint32 stage = 6;
+    repeated bytes ordered_proposal_ids = 7; // Exact committed ledger order, not ID sort.
+    repeated bytes ranked_proposal_ids = 8; // Frozen selected subset; may be empty.
+    repeated FrozenGovernanceOutcome outcomes = 9;
+    bytes record_hash = 10; // SHA-256 corruption check, not state authentication.
+    uint64 reserved_result_bytes = 11; // Whole unit, including receipts and fees.
 }
 message ProposalWalletRecieve{
     kal_txn.BaseTXN base = 1;
@@ -504,6 +657,9 @@ message DelegatedRecipient{
 //database db_voted_proposals key = public_key, value = VotedProposals
 message Delegated{
     map<string, uint32> proposals = 1; //key = proposal_id encoded, value = priority
+    // The root signed voter whose ballot currently carries this wallet's
+    // delegated weight. Equal-priority recasts are valid only from that root.
+    map<string, bytes> winning_ballot_wallet = 2;
 }
 message DelegateeWallets{
     repeated bytes wallet_adr = 1;
@@ -529,6 +685,10 @@ message ComplianceLevels{
 //Key = wallet_address
 message WalletLookup{
     map<string, ComplianceLevels> compliance = 1;    //compliance level of wallet of each contract
+    // New genesis stores grants in issuer-specific rows. These totals preserve
+    // logical wallet read and comparison gas without loading unrelated issuers.
+    uint64 logical_compliance_bytes = 2;
+    uint64 retained_compliance_levels = 3;
 }
 //the dates the next cycle will end at.
 message ProposalProcess{

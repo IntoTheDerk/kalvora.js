@@ -1,4 +1,6 @@
 /**
+ * Historical Ed voting example. See registered-vote.ts in this directory for a ballot using the registered voter and current proposal detail.
+ *
  * VoteTXN Examples
  *
  * This file demonstrates how to create and send GovernanceVote transactions

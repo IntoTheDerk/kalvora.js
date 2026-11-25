@@ -6,7 +6,21 @@
  * field is a string, so the bytes are transported as latin-1.
  */
 
+import bs58 from 'bs58';
+
+import { isPaymentRecipientBytes } from '../shared/crypto/address-utils.js';
+
 const TEXT = new TextEncoder();
+
+/** Balance and nonce also accept the burn wallet and the "p_" + 32-byte proposal escrow. */
+export function decodeBalanceNonceAddress(address: string): Uint8Array {
+  if (typeof address !== 'string' || !address.trim()) throw new Error('address must be a non-empty base58 address');
+  const text = address.trim();
+  // Native MAX_QUERY_ENCODED_ADDRESS_BYTES bounds Base58 conversion work.
+  const raw = text.length <= Math.floor(1126 * 138 / 100) + 1 ? bs58.decodeUnsafe(text) : undefined;
+  if (raw && (isPaymentRecipientBytes(raw) || (raw.length === 34 && raw[0] === 0x70 && raw[1] === 0x5f))) return raw;
+  throw new Error('address is not a valid base58 address for a balance or nonce query');
+}
 
 function u32(value: number): Uint8Array {
   const out = new Uint8Array(4);

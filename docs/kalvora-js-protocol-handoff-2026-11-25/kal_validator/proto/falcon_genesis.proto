@@ -1,0 +1,40 @@
+syntax = "proto3";
+package kal_genesis;
+import "txn.proto";
+
+// Public inputs of the block-zero signing ceremony. Allocation order is signed.
+message Signer {
+    kal_txn.FalconVariant variant = 1;
+    kal_txn.WalletHash wallet_hash = 2;
+    string public_key_base58 = 3;
+}
+message Allocation {
+    string address_base58 = 1;
+    string amount = 2;
+}
+message LaunchManifest {
+    uint32 format_version = 1;
+    string network_id = 2;
+    int64 timestamp_seconds = 3;
+    Signer owner = 4;
+    Signer operational = 5;
+    repeated Allocation allocations = 6;
+    string host = 7;
+    string client_port = 8;
+    string validator_port = 9;
+    string attestation_public_key_base58 = 10;
+    string attestation_pop_base58 = 11;
+}
+// Each custodian signs the exact transactions it authorizes. Only the operator
+// supplies a heartbeat signature. All three messages bind the unsigned manifest.
+message RoleProof {
+    bytes wallet_signature = 1;
+    bytes assignment_signature = 2;
+    bytes heartbeat_signature = 3;
+}
+message SignedLaunch {
+    LaunchManifest manifest = 1;
+    reserved 2, 3; // v1 detached wallet signatures
+    RoleProof owner_proof = 4;
+    RoleProof operational_proof = 5;
+}

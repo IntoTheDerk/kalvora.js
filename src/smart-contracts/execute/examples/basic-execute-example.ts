@@ -1,4 +1,6 @@
 /**
+ * Historical Ed contract example. See src/smart-contracts/README.md for a registered Falcon caller, signed gas cap and token allowances.
+ *
  * SmartContractExecuteTXN Examples
  *
  * This file demonstrates how to create and send SmartContractExecute transactions

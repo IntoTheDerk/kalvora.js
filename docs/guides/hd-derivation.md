@@ -1,5 +1,7 @@
 # HD key derivation
 
+This guide covers historical Ed25519 and Ed448 wallets. Fresh-genesis Falcon wallets use the [registered wallet backup and restore flow](./getting-started.md).
+
 How kalvora.js turns a mnemonic (or any seed) into a Kalvora key. This page is
 the specification: every byte below decides which address a mnemonic restores
 to, so it changes only with a new major scheme and a migration.

@@ -17,4 +17,4 @@ export {
   type SmartContractParameter
 } from '../shared/parameters.js';
 
-export type { SmartContractAllowanceInput } from '../shared/allowances.js';
+export { allowancesForDebits, type SmartContractAllowanceInput, type SmartContractDebit } from '../shared/allowances.js';

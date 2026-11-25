@@ -1,4 +1,6 @@
 /**
+ * Historical Ed transfer example. See docs/guides/getting-started.md for a registered wallet payment and scripts/export-falcon-interop.ts for an offline example.
+ *
  * Real-World SDK Usage Examples
  * 
  * This file demonstrates how to use the Kalvora SDK in real scenarios,

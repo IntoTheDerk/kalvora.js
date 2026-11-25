@@ -1,4 +1,6 @@
 /**
+ * Historical Ed wallet adapter example. See docs/adapter-integration-guide.md for selected registered addresses and Falcon signing.
+ *
  * Adapter Usage Examples — CoinTXN
  *
  * See also:

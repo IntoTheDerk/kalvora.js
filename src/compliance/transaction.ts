@@ -22,7 +22,7 @@ import {
   toTimestampInit,
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 /** Largest value representable by the protobuf `uint32 compliance_level` field. */
@@ -236,14 +236,14 @@ export async function buildComplianceTXN(
  */
 export async function createComplianceTXN(
   input: ComplianceTXNInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: ComplianceTXNOptions = {}
 ): Promise<ComplianceTXN> {
-  if (typeof privateKey !== 'string' || privateKey.trim() === '') {
+  if (!privateKey || (typeof privateKey === 'string' && !privateKey.trim())) {
     throw new Error('privateKey is required');
   }
-  const txn = await buildComplianceTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+  const txn = await buildComplianceTXN(input, optionsForSigner(options, privateKey));
+  return signBuiltTransaction(txn, privateKey, input.publicKey, options.grpcConfig?.transactionContext);
 }
 
 /**

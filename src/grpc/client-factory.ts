@@ -1,6 +1,6 @@
  
 import type { GenService } from '@bufbuild/protobuf/codegenv2';
-import { ConnectError, createClient as createConnectClient, type Client, type Interceptor } from '@connectrpc/connect';
+import { ConnectError, createClient as createConnectClient, type Client, type Interceptor, type Transport } from '@connectrpc/connect';
 import { createGrpcWebTransport } from '@connectrpc/connect-web';
 
 import { GuardianService } from '../../proto/generated/guardian_pb.js';
@@ -116,8 +116,18 @@ export function createClient<T extends GenService<any>>(
   service: T,
   config: GRPCConfig = {}
 ): Client<T> {
+  const unaryTimeout = config.timeout ?? 30_000;
+  function clientFor(transport: Transport): Client<T> {
+    const client = createConnectClient(service, {
+      unary: (method, signal, timeout, headers, input, context) =>
+        transport.unary(method, signal, timeout ?? unaryTimeout, headers, input, context),
+      stream: (method, signal, timeout, headers, input, context) =>
+        transport.stream(method, signal, timeout, headers, input, context)
+    });
+    return withErrorNormalization(client, service.typeName);
+  }
   if (config.transport) {
-    return withErrorNormalization(createConnectClient(service, config.transport), service.typeName);
+    return clientFor(config.transport);
   }
 
   // Default configuration: Kalvora protonet over HTTPS (443)
@@ -187,7 +197,7 @@ export function createClient<T extends GenService<any>>(
       return response;
     } catch (error) {
       // Attempt fallback if enabled, using HTTPS, and request failed
-      if (fallbackEnabled && actualProtocol === 'https:') {
+      if (fallbackEnabled && actualProtocol === 'https:' && !init?.signal?.aborted) {
         let urlStr = '';
         if (typeof input === 'string') {
           urlStr = input;
@@ -263,8 +273,8 @@ export function createClient<T extends GenService<any>>(
     useBinaryFormat: true,
     interceptors: [urlRewriter],
     // Use custom fetch wrapper for all client-side environments (RN + Web)
-    fetch: !isNodeJs ? createGrpcWebFetch() : retryingFetch
+    fetch: !isNodeJs ? createGrpcWebFetch(retryingFetch) : retryingFetch
   });
 
-  return withErrorNormalization(createConnectClient(service, transport), service.typeName);
+  return clientFor(transport);
 }

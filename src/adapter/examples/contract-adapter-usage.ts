@@ -1,4 +1,6 @@
 /**
+ * Historical Ed wallet adapter example. See docs/adapter-integration-guide.md for selected registered addresses and Falcon signing.
+ *
  * Adapter Example — Contract Create & Update
  *
  * Demonstrates building unsigned contract creation and update transactions

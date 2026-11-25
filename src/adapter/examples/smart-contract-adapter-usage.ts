@@ -1,4 +1,6 @@
 /**
+ * Historical Ed wallet adapter example. See docs/adapter-integration-guide.md for selected registered addresses and Falcon signing.
+ *
  * Adapter Example — Smart Contract Execute
  *
  * Demonstrates building and signing a SmartContractExecuteTXN externally

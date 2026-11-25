@@ -5,32 +5,31 @@ group: Guides
 
 # Transactions
 
-Every Kalvora transaction type has a module with three functions:
+For a standard user transaction, pass the selected registered wallet's Base58 address in the builder's `publicKey` field. The SDK encodes its complete raw address in `PublicKey.wallet_address`. Configure the client with an operator-supplied endpoint, trusted operator address and the chain ID derived from its trusted final genesis hash. [Getting started](./getting-started.md)
 
 | Step     | Function          | Does                                                    |
 |----------|-------------------|---------------------------------------------------------|
 | build    | `build<Msg>(…)`   | Validates input, resolves nonce and fees, returns the **unsigned** protobuf message |
-| create   | `create<Msg>(…)`  | `build` + sign with a private key                       |
+| create   | `create<Msg>(…)`  | Builds and signs with the wallet or signers supplied to the helper |
 | send     | `send<Msg>(txn)`  | Submits a **signed** message, returns the hex hash      |
 
-Use `build` + `signAndFinalize(txn, signer)` when keys live elsewhere
-(browser wallets, hardware wallets, MPC, cold storage).
+Use `build` and `signAndFinalize(txn, signer)` for standard transactions with local or external signers. Coin uses `signCoinTXN` and one authorization entry per signing slot.
 
 ## Catalog
 
 | Message | Functions | Signer needs | Module docs |
 |---------|-----------|--------------|-------------|
+| `WalletRegistration` | `buildWalletRegistration` · `signAndFinalize` · `client.submitAndWait` | new wallet, or witnesses satisfying the new policy | [Getting started](./getting-started.md) |
 | `CoinTXN` | `buildCoinTXN` (`buildCoinTransfer`) · `createCoinTXN` · `sendCoinTXN` | owns the inputs (or an allowance) | `src/coin-txn` |
-| `MintTXN` | `buildMintTXN` · `createMintTXN` (`buildMint`, signed) · `sendMintTXN` | restricted key with `mint` | `src/mint` |
+| `MintTXN` | `buildMintTXN` · `createMintTXN` (`buildMint`, signed) · `sendMintTXN` | wallet with the contract's mint grant | `src/mint` |
 | `InstrumentContract` | `buildContractTXN` (`buildInstrumentContract`) · `createContractTXN` · `sendContractTXN` | any wallet (creator) | [Contract IDs](./contract-ids.md) |
-| `ContractUpdateTXN` | `buildContractUpdateTXN` · `createContractUpdateTXN` · `sendContractUpdateTXN` | restricted key with `update_contract` | `src/contract` |
-| `RevokeTXN` | `buildRevokeTXN` (`buildRevoke`) · `createRevokeTXN` · `sendRevokeTXN` | restricted key with `revoke` | `src/revoke` |
-| `QuashTXN` | `buildQuashTXN` · `createQuashTXN` · `sendQuashTXN` | restricted key with `quash` | `src/quash` |
-| `ComplianceTXN` | `buildComplianceTXN` · `createComplianceTXN` · `sendComplianceTXN` | restricted key with `compliance` | `src/compliance` |
-| `ExpenseRatioTXN` | `buildExpenseRatioTXN` · `createExpenseRatioTXN` · `sendExpenseRatioTXN` | restricted key with `expense_ratio` | `src/expense-ratio` |
+| `ContractUpdateTXN` | `buildContractUpdateTXN` · `createContractUpdateTXN` · `sendContractUpdateTXN` | wallet with the update grant | `src/contract` |
+| `RevokeTXN` | `buildRevokeTXN` (`buildRevoke`) · `createRevokeTXN` · `sendRevokeTXN` | wallet with the revoke grant | `src/revoke` |
+| `ComplianceTXN` | `buildComplianceTXN` · `createComplianceTXN` · `sendComplianceTXN` | wallet with the compliance grant | `src/compliance` |
+| `ExpenseRatioTXN` | `buildExpenseRatioTXN` · `createExpenseRatioTXN` · `sendExpenseRatioTXN` | wallet with the expense ratio grant | `src/expense-ratio` |
 | `AllowanceTXN` | `buildAllowanceTXN` · `createAllowanceTXN` · `sendAllowanceTXN` (+ `buildRevokeAllowanceTXN`) | the granting wallet | `src/allowance` |
 | `DelegatedTXN` | `buildDelegatedTXN` · `createDelegatedTXN` · `sendDelegatedTXN` | the delegating wallet | `src/delegated-voting` |
-| `ItemizedMintTXN` | `buildItemizedMintTXN` (`buildItemMint`) · `createItemizedMintTXN` · `sendItemizedMintTXN` | restricted key with `mint` | `src/items` |
+| `ItemizedMintTXN` | `buildItemizedMintTXN` (`buildItemMint`) · `createItemizedMintTXN` · `sendItemizedMintTXN` | wallet with the mint grant | `src/items` |
 | `NFTTXN` | `buildNFTTXN` (`buildNftTransfer`) · `createNFTTXN` · `sendNFTTXN` | item owner | `src/items` |
 | `BurnSBTTXN` | `buildBurnSBTTXN` (`buildSbtBurn`) · `createBurnSBTTXN` · `sendBurnSBTTXN` | item owner | `src/items` |
 | `GovernanceProposal` | `buildGovernanceProposalTXN` · `buildTextGovernanceProposalTXN` · `createTextGovernanceProposalTXN` · `sendGovernanceProposalTXN` | holder of an allowed proposal instrument | `src/proposal` |
@@ -39,8 +38,8 @@ Use `build` + `signAndFinalize(txn, signer)` when keys live elsewhere
 | `SmartContractTXN` | `buildSmartContractTXN` · `createSmartContractTXN` · `sendSmartContractTXN` | any wallet (deployer) | `src/smart-contracts/deploy` |
 | `SmartContractInstantiateTXN` | `buildSmartContractInstantiateTXN` · `create…` · `send…` | any wallet | `src/smart-contracts/instantiate` |
 | `SmartContractExecuteTXN` | `buildSmartContractExecuteTXN` · `create…` · `send…` | depends on the contract | `src/smart-contracts/execute` |
-| `ValidatorRegistration` | `buildValidatorRegistrationTXN` · `createValidatorRegistrationTXN` · `sendValidatorRegistrationTXN` | validator operator + generated node key | `src/validator-ops` |
-| `ValidatorHeartbeat` | `buildValidatorHeartbeatTXN` · `createValidatorHeartbeatTXN` · `sendValidatorHeartbeatTXN` | validator operator | `src/validator-ops` |
+| `ValidatorRegistration` | `buildValidatorRegistrationTXN` · `createValidatorRegistrationTXN` · `sendValidatorRegistrationTXN` | registered owner and separate registered operational wallet for assignment | `src/validator-ops` |
+| `ValidatorHeartbeat` | `buildValidatorHeartbeatTXN` · `createValidatorHeartbeatTXN` · `sendValidatorHeartbeatTXN` | operational wallet signs, owner supplies nonce and pays fee | `src/validator-ops` |
 
 Higher-level smart-contract workflows are namespaced: `staking`, `bootstrapping`,
 `dex`, the Kalvora-side bridge functions (`lockKalvora`, `releaseKalvora`, …),
@@ -48,20 +47,19 @@ Higher-level smart-contract workflows are namespaced: `staking`, `bootstrapping`
 
 ## Shared options (`StandardTXNOptions`)
 
-The single-input builders (mint, revoke, quash, compliance, expense ratio,
-allowance, delegated voting, validator ops) take one input object plus
-`StandardTXNOptions`:
+Mint, revoke, compliance, expense ratio, allowance, delegated voting and validator operations share the following build options.
 
 | Option | Default | Meaning |
 |--------|---------|---------|
-| `grpcConfig` | protonet | Endpoint for nonce and fee lookups |
+| `grpcConfig` | preset endpoint | Set your endpoint and trusted `transactionContext.chainId` |
 | `nonce` | network nonce + 1 | Explicit replay-protection nonce (skips lookup) |
 | `timestamp` | `new Date()` | `BaseTXN.timestamp` |
 | `memo` | — | `BaseTXN.memo` |
 | `feeId` | `KALVORA_NATIVE_TOKEN` | Base fee instrument |
-| `feeAmountParts` | calculated | Exact base fee in smallest units (skips fee lookup) |
+| `feeAmountParts` | calculated | Authorized base fee cap in smallest units (skips fee lookup) |
 | `overestimatePercent` | `5` | Headroom on the calculated fee (the network charges only the real fee) |
 | `safeSend` | unset | `BaseTXN.safe_send` |
+| `proofLayout` | inferred or resolved where possible | Selected Falcon variants, policy slots and sponsor for sizing signed bytes |
 | `interfaceFeeId` / `interfaceFee` / `interfaceAddress` | — | Integrator fee (all three together; amount in whole tokens) |
 
 Amounts in these builders are **smallest units** (`bigint`, safe integer, or
@@ -72,15 +70,18 @@ or `query.getDenomination(contractId)`.
 
 ### Mint new supply
 
+The examples use a pinned `client` and the application's `verifyFinalizedBlock` callback. Each signer controls its selected registered address. The minter holds the contract's mint grant.
+
 ```typescript
-import { createMintTXN, sendMintTXN } from 'kalvora.js';
+import { createMintTXN } from 'kalvora.js';
 
 const txn = await createMintTXN(
-  { contractId, amount: 5_000_000_000n, recipientAddress, publicKey: minter.publicKey },
-  minter.privateKey,
-  { grpcConfig }
+  { contractId, amount: 5_000_000_000n, recipientAddress, publicKey: minter.walletAddress },
+  minter,
+  { grpcConfig: client.grpcConfig }
 );
-const hash = await sendMintTXN(txn, grpcConfig);
+const minted = await client.submitAndWait(txn, { verifyFinalizedBlock });
+if (!minted.success) throw new Error(minted.statusName);
 ```
 
 ### Grant and revoke a spending allowance
@@ -88,53 +89,77 @@ const hash = await sendMintTXN(txn, grpcConfig);
 ```typescript
 import { createAllowanceTXN, createRevokeAllowanceTXN, usdToCurrencyEquivalent } from 'kalvora.js';
 
-// Let `spender` move up to $250 worth of the token per month.
+// Let spender move up to $250 worth of the token per month.
 const grant = await createAllowanceTXN({
-  publicKey: owner.publicKey,
+  publicKey: owner.walletAddress,
   contractId,
-  walletAddress: spender.address,
+  walletAddress: spender.walletAddress,
   allowedCurrencyEquivalent: usdToCurrencyEquivalent('250'),
   periodMonths: 1,
   startTime: new Date()
-}, owner.privateKey);
+}, owner, { grpcConfig: client.grpcConfig });
+const granted = await client.submitAndWait(grant, { verifyFinalizedBlock });
+if (!granted.success) throw new Error(granted.statusName);
 
 // The spender then builds a CoinTXN with an input whose `allowanceAddress`
 // is the owner's address (see src/allowance/README.md).
 
+// When the owner wants to revoke the allowance, build with the next nonce.
 const revoke = await createRevokeAllowanceTXN(
-  { publicKey: owner.publicKey, contractId, walletAddress: spender.address },
-  owner.privateKey
+  { publicKey: owner.walletAddress, contractId, walletAddress: spender.walletAddress },
+  owner,
+  { grpcConfig: client.grpcConfig }
 );
 ```
 
-### Quash a pending time-delayed transaction
+### Sponsor a wallet registration
+
+An already registered single-key sponsor can pay for a new wallet with no balance. Include the sponsor in the fee quote so it covers both proofs and the additional signer. Owner and sponsor each use their next nonce.
 
 ```typescript
-const quash = await createQuashTXN({ contractId, txnHash: pendingHash, publicKey: admin.publicKey }, admin.privateKey);
+import { buildWalletRegistration, countersignTransaction, signAndFinalize } from 'kalvora.js';
+
+const sponsorNonce = await client.query.getNextNonce(sponsor.walletAddress);
+const registration = await buildWalletRegistration(newWallet, {
+  grpcConfig: client.grpcConfig,
+  nonce: 1n,
+  proofLayout: {
+    sponsor: { address: sponsor.walletAddress, nonce: sponsorNonce, variant: sponsor.variant }
+  }
+});
+const ownerSigned = await signAndFinalize(registration, newWallet);
+const sponsored = await countersignTransaction(ownerSigned, sponsor, sponsorNonce);
+const registered = await client.submitAndWait(sponsored, { verifyFinalizedBlock });
+if (!registered.success) throw new Error(registered.statusName);
 ```
 
 ### Assign KYC compliance
 
 ```typescript
+import { createComplianceTXN } from 'kalvora.js';
+
 const compliance = await createComplianceTXN({
   contractId,
-  publicKey: officer.publicKey,
+  publicKey: officer.walletAddress,
   assignments: [
     { recipientAddress: alice, complianceLevel: 2, assign: true, expiry: new Date('2027-12-31') },
     { recipientAddress: bob, complianceLevel: 1, assign: false }
   ]
-}, officer.privateKey);
+}, officer, { grpcConfig: client.grpcConfig });
 ```
 
-### Build offline, sign on a hardware wallet
+### Build offline and sign using a wallet adapter
+
+Obtain the hardware or offline signer's selected address, trusted chain ID, next nonce and fee cap before disconnecting. Use a timestamp inside the network's acceptance window when submitting.
 
 ```typescript
+import { buildRevokeTXN, signAndFinalize } from 'kalvora.js';
+
 const unsigned = await buildRevokeTXN(
-  { contractId, recipientAddress, itemId: '42', publicKey: hw.publicKey },
-  { nonce: 17n, feeAmountParts: '2000000', timestamp: new Date('2026-10-01T00:00:00Z') }
+  { contractId, recipientAddress, itemId: '42', publicKey: selectedRegisteredAddress },
+  { grpcConfig: client.grpcConfig, nonce: nextNonce, feeAmountParts: approvedCap, timestamp }
 );
-const signed = await signAndFinalize(unsigned, hardwareSigner); // KalvoraSigner
-await sendRevokeTXN(signed, grpcConfig);
+const signed = await signAndFinalize(unsigned, hardwareSigner, client.grpcConfig.transactionContext);
 ```
 
 ## Governance proposals
@@ -147,11 +172,7 @@ attaches transactions: a binary proposal sets `governanceTxn` and leaves
 `base.public_key.governance_auth` must be the ASCII bytes of `gov_` plus
 the proposal contract id, and its `base.hash` must be copied into
 `GovernanceTXN.txnHash`. Pass the contract's governance snapshot so the fee
-covers every stage, including pre-governance. Adaptive governance also
-requires `startTimestamp` and `endTimestamp`.
-
-The worked example, including a one-part coin transfer, is in
-[`src/proposal/README.md`](../../src/proposal/README.md).
+covers every effective PRE and POST step. Council step indices start at zero. Regular votes omit the council indices. Granular proposals use an explicit start and end time, separate participation and approval thresholds, and a distinct voter list. The optional instrument selects weighted voting. Report execution after checking the committed group or child outcomes.
 
 ## Contract IDs
 
@@ -165,15 +186,16 @@ checksums, genesis ids, and the token versus NFT/SBT field rules are in
 
 ## Confirming inclusion
 
-`send*` returns once a node accepts the transaction. To wait for the block
-and read the processing status:
+`send*` acknowledges submission. To match the signed hash to a receipt, verify finality and inspect the execution result, submit the signed transaction through the pinned client.
 
 ```typescript
-const result = await kalvora.submitAndWait(signed);
+const result = await client.submitAndWait(signed, { verifyFinalizedBlock });
 result.success;     // TXN_STATUS.OK?
 result.statusName;  // e.g. 'INSUFFICIENT_AMOUNT'
 result.baseFees;    // fee actually charged (smallest units)
 ```
+
+If submission times out, look up the same hash and check the committed nonce. Within the acceptance window, retrying identical signed bytes preserves the hash. Creating another Falcon signature changes it.
 
 ## Serialization for wallet hand-off
 

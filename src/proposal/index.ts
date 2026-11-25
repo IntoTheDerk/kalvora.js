@@ -18,6 +18,8 @@ export {
 } from './governance.js';
 export {
   applyProposalStageFee,
+  validateGovernanceSettings,
+  regularVotingUnits,
   proposalAdditionalStageDivisor,
   FORBIDDEN_OPTION_WORDS,
   type GovernanceOptionInput

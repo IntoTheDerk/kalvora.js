@@ -1,25 +1,23 @@
 import {
   createWallet,
   deriveMultipleWallets,
+  FalconWallet,
   generateMnemonicPhrase,
   KEY_TYPE,
   HASH_TYPE
 } from '../index.js';
 
-/**
- * Basic Wallet Creation Examples
- * 
- * Simple, focused examples showing core wallet creation functionality.
- * Each example demonstrates a specific concept with minimal setup.
- * 
- * New key-only address format: address = base58(publicKey)
- * Public key identifier: KeyPrefix_Base58PublicKey (e.g., A_<pubkey>)
- */
+// Offline demonstration. Use the operator's trusted genesis hash for a receiving account.
+const wallet = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: '47'.repeat(32) });
+const restored = FalconWallet.restore(wallet.exportBackup());
+if (restored.walletAddress !== wallet.walletAddress) throw new Error('Backup restored a different address');
+console.log('Falcon receiving address (offline example):', wallet.walletAddress);
+// The backup contains the private key. Persist it only through protected storage.
+// See docs/guides/getting-started.md to register and confirm the first payment.
 
-// Call the function when this file is run
-demonstrateBasicUsage();
-async function demonstrateBasicUsage() {
-  console.log('🎯 Kalvora Wallet Creation - Basic Examples\n');
+/** Historical Ed25519/Ed448 mnemonic, key-only address and HD derivation examples. */
+export async function demonstrateHistoricalWalletUsage() {
+  console.log('Historical Ed wallet creation examples\n');
 
   try {
     // Example 1: Simple Ed25519 wallet (key-only mode — default)

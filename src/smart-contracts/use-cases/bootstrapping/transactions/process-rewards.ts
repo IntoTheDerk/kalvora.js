@@ -10,6 +10,7 @@
 import type { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../execute/index.js';
 import type { BootstrappingOptions } from '../types.js';
 import { createBootstrappingTransaction } from '../utils.js';
@@ -27,7 +28,7 @@ import { createBootstrappingTransaction } from '../utils.js';
  */
 export async function processRewards(
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BootstrappingOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!publicKeyBase58Identifier) throw new Error('publicKeyBase58Identifier is required');
@@ -50,7 +51,7 @@ export async function processRewards(
  */
 export async function processRewardsAndSend(
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BootstrappingOptions = {}
 ): Promise<string> {
   const txn = await processRewards(publicKeyBase58Identifier, privateKeyBase58, options);

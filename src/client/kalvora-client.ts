@@ -28,6 +28,7 @@
 import { submitTransaction, type AnyKalvoraTransaction } from '../grpc/transaction/transaction-client.js';
 import {
   KalvoraQueryClient,
+  type WaitForTransactionOptions,
   type ConfirmedTransaction
 } from '../query/api-client.js';
 import { GuardianQueryClient } from '../query/guardian-client.js';
@@ -57,6 +58,7 @@ export interface KalvoraClientOptions {
 
 /** Options for {@link KalvoraClient.submitAndWait}. */
 export interface SubmitAndWaitOptions {
+  verifyFinalizedBlock?: WaitForTransactionOptions['verifyFinalizedBlock'];
   /** Give up waiting after this many milliseconds (default 120 000). */
   timeoutMs?: number;
   /** Delay between block polls (default 2 000). */
@@ -87,7 +89,8 @@ export class KalvoraClient {
   /** @param options - Network selection and endpoint overrides */
   constructor(options: KalvoraClientOptions = {}) {
     this.network = resolveNetwork(options.network ?? 'protonet');
-    this.grpcConfig = { ...this.network.grpc, ...options.grpc };
+    this.grpcConfig = { ...this.network.grpc, ...options.grpc,
+      ...(this.network.transactionContext ? { transactionContext: this.network.transactionContext } : {}) };
     this.query = new KalvoraQueryClient(this.grpcConfig);
     this.validator = new ValidatorQueryClient(this.grpcConfig);
     this.guardianClient = options.guardian ? new GuardianQueryClient(options.guardian) : undefined;
@@ -144,6 +147,7 @@ export class KalvoraClient {
     const hash = await this.submit(txn);
     const result = await this.query.waitForTransaction(hash, {
       fromHeight,
+      ...(options.verifyFinalizedBlock ? { verifyFinalizedBlock: options.verifyFinalizedBlock } : {}),
       ...(options.timeoutMs !== undefined ? { timeoutMs: options.timeoutMs } : {}),
       ...(options.pollIntervalMs !== undefined ? { pollIntervalMs: options.pollIntervalMs } : {}),
       ...(options.signal !== undefined ? { signal: options.signal } : {})

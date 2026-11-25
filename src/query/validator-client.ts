@@ -28,7 +28,7 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Client } from '@connectrpc/connect';
 
 import { TimestampSchema } from '../../proto/generated/google/protobuf/timestamp_pb.js';
-import { PublicKeySchema, type PublicKey, type Validator } from '../../proto/generated/txn_pb.js';
+import { type PublicKey, type Validator } from '../../proto/generated/txn_pb.js';
 import {
   BalanceRequestSchema,
   CheckpointInfoRequestSchema,
@@ -37,13 +37,14 @@ import {
   ValidatorSyncRequestSchema
 } from '../../proto/generated/validator_pb.js';
 import { createClient } from '../grpc/client-factory.js';
-import { getPublicKeyBytes } from '../shared/crypto/address-utils.js';
-import { parseAddress, requireContractId, toTimestampInit } from '../shared/tx/standard.js';
+import { signerPublicKey } from '../shared/tx/base.js';
+import { requireContractId, toTimestampInit } from '../shared/tx/standard.js';
 import { bytesToHex } from '../shared/utils/byte-utils.js';
 import type { KalvoraSigner } from '../sign/signer.js';
 import type { GRPCConfig } from '../types/index.js';
 
 import { parseUintString } from './decoders.js';
+import { decodeBalanceNonceAddress } from './keys.js';
 
 /** Latest validator state checkpoint advertised by a node. */
 export interface CheckpointInfo {
@@ -89,7 +90,7 @@ export class ValidatorQueryClient {
    */
   async getNonce(address: string): Promise<bigint> {
     const response = await this.raw.nonce(create(NonceRequestSchema, {
-      walletAddress: parseAddress(address, 'address')
+      walletAddress: decodeBalanceNonceAddress(address)
     }));
     return response.nonce;
   }
@@ -97,7 +98,7 @@ export class ValidatorQueryClient {
   /** Balance (smallest units) of one token in a wallet, as seen by the validator. */
   async getBalance(address: string, contractId: string): Promise<bigint> {
     const response = await this.raw.balance(create(BalanceRequestSchema, {
-      walletAddress: parseAddress(address, 'address'),
+      walletAddress: decodeBalanceNonceAddress(address),
       contractId: requireContractId(contractId),
       encoded: false
     }));
@@ -117,7 +118,7 @@ export class ValidatorQueryClient {
    */
   async getCheckpointInfo(signer: KalvoraSigner, now: Date = new Date()): Promise<CheckpointInfo> {
     const request = create(CheckpointInfoRequestSchema, {
-      publicKey: create(PublicKeySchema, { single: new Uint8Array(getPublicKeyBytes(signer.publicKey)) }),
+      publicKey: signerPublicKey(signer.walletAddress ?? signer.publicKey),
       timestamp: create(TimestampSchema, toTimestampInit(now, 'now'))
     });
     request.signature = await signer.sign(toBinary(CheckpointInfoRequestSchema, request));
@@ -143,7 +144,7 @@ export class ValidatorQueryClient {
    */
   async syncValidatorList(signer: KalvoraSigner): Promise<Validator[]> {
     const request = create(ValidatorSyncRequestSchema, {
-      publicKey: create(PublicKeySchema, { single: new Uint8Array(getPublicKeyBytes(signer.publicKey)) })
+      publicKey: signerPublicKey(signer.walletAddress ?? signer.publicKey)
     });
     request.signature = await signer.sign(toBinary(ValidatorSyncRequestSchema, request));
     const response = await this.raw.syncValidatorList(request);

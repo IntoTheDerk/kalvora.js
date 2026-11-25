@@ -276,7 +276,8 @@ describe('ValidatorQueryClient', () => {
           requests.push(req);
           return {
             validators: [
-              { host: '10.0.0.1', clientPort: '50053', validatorPort: '50051', online: true, version: 100_002 },
+              { host: '10.0.0.1', clientPort: '50053', validatorPort: '50051', online: true, version: 100_002,
+                lastHeartbeatTimeSeconds: 1_750_000_100n, lastSignedHeartbeatTimeSeconds: 1_750_000_000n },
               { host: '10.0.0.2', lite: true }
             ]
           };
@@ -289,6 +290,8 @@ describe('ValidatorQueryClient', () => {
       expect(validators).toHaveLength(2);
       expect(validators[0]).toMatchObject({ host: '10.0.0.1', clientPort: '50053', validatorPort: '50051', online: true, version: 100_002 });
       expect(validators[1]).toMatchObject({ host: '10.0.0.2', lite: true, online: false });
+      expect(validators[0]?.lastHeartbeatTimeSeconds).toBe(1_750_000_100n);
+      expect(validators[0]?.lastSignedHeartbeatTimeSeconds).toBe(1_750_000_000n);
     });
 
     it('surfaces UNIMPLEMENTED from gateways', async () => {
@@ -300,7 +303,7 @@ describe('ValidatorQueryClient', () => {
 
     it('rejects a signer with a malformed public key', async () => {
       await expect(client({}).syncValidatorList({ publicKey: 'nounderscore', sign: async () => new Uint8Array() }))
-        .rejects.toThrow('Invalid public key identifier');
+        .rejects.toThrow(/address/i);
     });
   });
 });

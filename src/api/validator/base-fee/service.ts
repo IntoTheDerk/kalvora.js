@@ -43,11 +43,12 @@ export interface EnhancedBaseFeeResponse extends BaseFeeResponse {
 export async function getBaseFee(
   txnType: TRANSACTION_TYPE,
   publicKey?: PublicKey,
-  options: GRPCConfig = {}
+  options: GRPCConfig = {},
+  additionalSigner?: PublicKey
 ): Promise<EnhancedBaseFeeResponse> {
   try {
     const client = createValidatorAPIClient(options);
-    const response: BaseFeeResponse = await client.getBaseFee(publicKey, txnType);
+    const response: BaseFeeResponse = await client.getBaseFee(publicKey, txnType, additionalSigner);
 
     return enhanceBaseFeeResponse(response);
   } catch (error) {

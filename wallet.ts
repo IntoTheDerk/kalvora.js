@@ -1,9 +1,8 @@
 /**
  * kalvora.js/wallet — the wallet and key surface of kalvora.js on its own.
  *
- * Mnemonics, HD derivation, key pairs, and address encoding, with none of the
- * network, protobuf, or transaction code: it depends only on @noble/curves,
- * @noble/hashes, bip39, and bs58, and never touches the network. Use it where
+ * Offline Falcon key generation, backup, signing, address encoding and legacy
+ * mnemonic/HD key tooling. Use it where
  * a Kalvora key or address is all you need, such as a browser custody layer.
  *
  * HD derivation: Ed25519 follows SLIP-0010 exactly; Ed448, which no standard
@@ -12,6 +11,8 @@
  * Everything here is also exported, unchanged, from the main `kalvora.js`
  * entry.
  */
+
+export * from './src/wallet-creation/falcon.js';
 
 export {
   WalletCreationError,

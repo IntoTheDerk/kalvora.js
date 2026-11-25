@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * Kalvora ↔ Solana Bridge - End-to-End Example
  * 
  * This example demonstrates the complete bridge flow for transferring tokens

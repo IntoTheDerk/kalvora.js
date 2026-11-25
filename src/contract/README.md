@@ -21,3 +21,5 @@ An inherited restricted-key configuration must retain the child's local
 `updateContract` recovery grant, or an active vote controller for a
 vote-controlled child. The network resolves inheritance through one parent
 and at most 64 contract records.
+
+A wallet or policy creator's V2 contract ID commits to its full address and vanity nonce. Omitting the vanity nonce uses zero, and an explicitly supplied contract ID must still match. Internal governance and smart-contract creators retain their V1 domains. For a direct grant, put the raw address in `publicKey.walletAddress` and select all allowed actions in one entry for that authority. An inherited grant uses `publicKey.parentContract`. Direct child entries take precedence. A nonempty update replaces the entire list, including any parent and recovery entries.

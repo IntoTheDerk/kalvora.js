@@ -1,4 +1,6 @@
 /**
+ * Historical query example using pre-registration test addresses. See docs/guides/getting-started.md and src/query/README.md for current balance and nonce lookups.
+ *
  * Validator Nonce Service Examples
  * 
  * This provides examples for the validator nonce service.

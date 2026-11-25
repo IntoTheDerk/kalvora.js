@@ -20,12 +20,14 @@ import {
 } from '../../protocol/contract-id.js';
 import { generateAddressFromPublicKey, getKeyTypeFromPublicKey, getPublicKeyBytes } from '../../shared/crypto/address-utils.js';
 import { KEY_TYPE } from '../../shared/crypto/constants.js';
+import { decodeWalletAddress, isWalletAddress } from '../../shared/crypto/falcon-address.js';
 import { UniversalFeeCalculator, type FeeConfigHelper } from '../../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../../shared/tx/base.js';
+import { parseUint256 } from '../../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.js';
-import { signWithKey } from '../../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction } from '../../sign/builder.js';
 import type { GRPCConfig } from '../../types/index.js';
 import type { CreateContractOptions } from '../shared/types.js';
 import { validateKeyPair, validateCurrentContractFields, validateCreateContractOptions, validatePremintWallets } from '../shared/utils.js';
@@ -84,6 +86,13 @@ function creatorAuthorization(publicKeyId: string): {
       creatorAuthorizationBytes: new TextEncoder().encode(publicKeyId)
     };
   }
+  if (isWalletAddress(publicKeyId)) {
+    return {
+      creatorAuthorizationType: CREATOR_AUTHORIZATION.WALLET_ADDRESS,
+      creatorKeyAlgorithm: CREATOR_KEY_ALGORITHM.NONE,
+      creatorAuthorizationBytes: decodeWalletAddress(publicKeyId)
+    };
+  }
   const keyType = getKeyTypeFromPublicKey(publicKeyId);
   return {
     creatorAuthorizationType: CREATOR_AUTHORIZATION.SINGLE_KEY,
@@ -94,16 +103,17 @@ function creatorAuthorization(publicKeyId: string): {
   };
 }
 
-function resolveContractId(options: BuildContractOptions): string {
-  if (options.vanityNonce === undefined) {
+function resolveContractId(options: BuildContractOptions, freshCreator: boolean): string {
+  if (options.vanityNonce === undefined && !freshCreator) {
     if (!options.contractId) {
       throw new Error('contractId is required when vanityNonce is not set');
     }
     return options.contractId;
   }
+  const vanityNonce = options.vanityNonce ?? 0n;
   const derived = deriveOrdinaryContractId({
     ...creatorAuthorization(options.publicKeyBase58Identifier),
-    vanityNonce: options.vanityNonce,
+    vanityNonce,
     contractDataHash: deriveContractDataHash({
       symbol: options.symbol,
       type: options.type,
@@ -128,7 +138,7 @@ function resolveContractId(options: BuildContractOptions): string {
     })
   });
   if (options.contractId !== undefined && options.contractId !== derived) {
-    throw new Error(`contractId does not match the ID derived from vanityNonce ${options.vanityNonce}`);
+    throw new Error(`contractId does not match the ID derived from vanityNonce ${vanityNonce}`);
   }
   return derived;
 }
@@ -136,14 +146,22 @@ function resolveContractId(options: BuildContractOptions): string {
 export async function buildContractTXN(
   options: BuildContractOptions
 ): Promise<InstrumentContract> {
-  validateCurrentContractFields(options);
   if (!options.publicKeyBase58Identifier) throw new Error('Public key identifier is required');
-  const contractId = resolveContractId(options);
+  const internalCreator = options.publicKeyBase58Identifier.startsWith('gov_') || options.publicKeyBase58Identifier.startsWith('sc_');
+  const freshCreator = internalCreator || isWalletAddress(options.publicKeyBase58Identifier);
+  const contractId = resolveContractId(options, freshCreator);
+  validateCurrentContractFields({ ...options, contractId });
   validateCreateContractOptions({
     contractId, symbol: options.symbol,
     name: options.name, contractVersion: options.contractVersion, type: options.type
   });
-  generateAddressFromPublicKey(options.publicKeyBase58Identifier);
+  if (internalCreator) {
+    if (options.nonce === undefined || options.feeAmountParts === undefined) {
+      throw new Error('Supply the embedded nonce and fee cap for an internal contract creator');
+    }
+  } else {
+    generateAddressFromPublicKey(options.publicKeyBase58Identifier);
+  }
 
   const itemCollection = options.type === CONTRACT_TYPE.NFT || options.type === CONTRACT_TYPE.SBT;
   if (itemCollection) {
@@ -161,13 +179,17 @@ export async function buildContractTXN(
     }
   } else if (!options.coinDenomination) {
     throw new Error('TOKEN contracts require coinDenomination');
+  } else if (freshCreator) {
+    if (options.maxSupply === undefined) throw new Error('TOKEN contracts require maxSupply');
+    parseUint256(options.coinDenomination.amount, 'coinDenomination.amount', false);
   }
-  if ((options.restrictedKeys?.length ?? 0) > 50) {
-    throw new Error('restrictedKeys cannot exceed 50');
-  }
+  if (freshCreator && options.maxSupply !== undefined) parseUint256(options.maxSupply, 'maxSupply');
 
   if (options.premintWallets) {
-    validatePremintWallets({ contractType: options.type, premintWallets: options.premintWallets });
+    validatePremintWallets({
+      contractType: options.type, premintWallets: options.premintWallets,
+      ...(freshCreator && options.maxSupply !== undefined && { maxSupply: options.maxSupply })
+    });
   }
 
   const grpcConfig = options.grpcConfig || PROTONET_GRPC_CONFIG;
@@ -185,7 +207,7 @@ export async function buildContractTXN(
   if (options.memo) baseParams.memo = options.memo;
   if (options.feeId !== undefined) baseParams.feeId = options.feeId;
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
-  const base = buildStandardBaseTXN(baseParams, 'kal_txn.InstrumentContract');
+  const base = buildStandardBaseTXN({ ...baseParams, ...(options.grpcConfig?.transactionContext && { context: options.grpcConfig.transactionContext }) }, 'kal_txn.InstrumentContract');
 
   const contractData: Record<string, unknown> = {
     base, contractVersion: options.contractVersion, symbol: options.symbol,
@@ -209,6 +231,8 @@ export async function buildContractTXN(
   const effectiveFeeId = options.feeId || KALVORA_NATIVE_TOKEN;
 
   const feeOptions: FeeConfigHelper<InstrumentContract> = {
+    ...(options.proofLayout && { proofLayout: options.proofLayout }),
+    ...(options.nonNativeMultiplier !== undefined && { nonNativeMultiplier: options.nonNativeMultiplier }),
     protoObject: contractTxn, tokenInfoMap: new Map(), baseFeeId: effectiveFeeId,
     contractId,
     ...(options.grpcConfig ? { grpcConfig: options.grpcConfig } : {}),
@@ -240,11 +264,9 @@ export async function createContractTXN(
   });
 
   const { privateKeyBase58, ...unsignedOptions } = options;
-  const contractTxn = await buildContractTXN(unsignedOptions);
+  const contractTxn = await buildContractTXN(optionsForSigner(unsignedOptions, privateKeyBase58));
 
-  signWithKey(contractTxn, privateKeyBase58, options.publicKeyBase58Identifier);
-
-  return contractTxn;
+  return signBuiltTransaction(contractTxn, privateKeyBase58, options.publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 // ============================================================================

@@ -6,7 +6,7 @@ export {
   createValidatorRegistrationTXN,
   sendValidatorHeartbeatTXN,
   sendValidatorRegistrationTXN,
-  type GeneratedKeyPair,
+  type ValidatorWalletSigner,
   type AttestationKeyInput,
   type ValidatorHeartbeatInput,
   type ValidatorInfoInput,

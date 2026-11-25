@@ -11,7 +11,7 @@
  * import { create, toBinary } from '@bufbuild/protobuf';
  * import { proto } from 'kalvora.js';
  *
- * const pk = create(proto.txn.PublicKeySchema, { single: bytes });
+ * const pk = create(proto.txn.PublicKeySchema, { walletAddress: addressBytes });
  * const wrapper = create(proto.txn.TXNWrapperSchema, { payload: { case: 'coinTxn', value: coinTxn } });
  * const bytes = toBinary(proto.txn.TXNWrapperSchema, wrapper);
  * ```

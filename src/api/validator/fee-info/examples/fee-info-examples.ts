@@ -4,6 +4,7 @@
  * Demonstrates how to use the fee info service to get comprehensive token fee information.
  */
 
+import { GENESIS_CONTRACT_IDS } from '../../../../protocol/contract-id.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
 import { getTokenFeeInfo } from '../request.js';
 
@@ -15,7 +16,7 @@ async function getAllTokenFeeInfoExample() {
     console.log('Fetching comprehensive fee information for all tokens...');
     
     const response = await getTokenFeeInfo({
-      contractIds: ['KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', 'IIT0000'],
+      contractIds: [GENESIS_CONTRACT_IDS.KALV, GENESIS_CONTRACT_IDS.PREGOV],
       includeRates: true,
       includeContractFees: true
     }, PROTONET_GRPC_CONFIG); // Use PROTONET_GRPC_CONFIG here
@@ -61,8 +62,8 @@ async function getSingleTokenFeeInfoExample() {
       includeContractFees: true
     }, PROTONET_GRPC_CONFIG);
     
-    if (response.tokens.length > 0) {
-      const info = response.tokens[0];
+    const info = response.tokens[0];
+    if (info) {
       console.log(`  Contract ID: ${info.contractId}`);
       console.log(`  Rate: ${info.rate} (raw string)`);
       console.log(`  Authorized: ${info.authorized}`);

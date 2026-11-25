@@ -1,4 +1,6 @@
 /**
+ * Historical Ed transfer example. See docs/guides/getting-started.md for a registered wallet payment and scripts/export-falcon-interop.ts for an offline example.
+ *
  * CoinTXN Examples — needsInitialization Override
  *
  * Demonstrates how to use the `needsInitialization` option in FeeConfig

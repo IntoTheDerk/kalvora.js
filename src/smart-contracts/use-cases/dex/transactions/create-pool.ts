@@ -20,6 +20,7 @@
 import type { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../execute/index.js';
 import type { CreateLiquidityPoolOptions, DexOptions } from '../types.js';
 import { createDexTransaction, computeLockTimestamp, resolveAmount } from '../utils.js';
@@ -40,7 +41,7 @@ import { createDexTransaction, computeLockTimestamp, resolveAmount } from '../ut
 export async function createLiquidityPool(
   pool: CreateLiquidityPoolOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: DexOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!pool.tokenA) throw new Error('tokenA is required');
@@ -79,7 +80,7 @@ export async function createLiquidityPool(
 export async function createLiquidityPoolAndSend(
   pool: CreateLiquidityPoolOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: DexOptions = {}
 ): Promise<string> {
   const txn = await createLiquidityPool(pool, publicKeyBase58Identifier, privateKeyBase58, options);

@@ -12,7 +12,7 @@ import { create } from '@bufbuild/protobuf';
 import { SmartContractExecuteTXNSchema } from '../../../proto/generated/txn_pb.js';
 import type { SmartContractExecuteTXN } from '../../../proto/generated/txn_pb.js';
 import { validateKeyPair } from '../../contract/shared/utils.js';
-import { signWithKey } from '../../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../../sign/builder.js';
 import type { GRPCConfig } from '../../types/index.js';
 import { buildSmartContractAllowances, type SmartContractAllowanceInput } from '../shared/allowances.js';
 import {
@@ -135,7 +135,7 @@ export async function createSmartContractExecuteTXN(
   functionName: string,
   parameters: ExecuteParameter[],
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: CreateSmartContractExecuteOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!privateKeyBase58) throw new Error('privateKeyBase58 is required');
@@ -147,12 +147,10 @@ export async function createSmartContractExecuteTXN(
 
   const executeTxn = await buildSmartContractExecuteTXN(
     smartContractName, instance, functionName, parameters,
-    publicKeyBase58Identifier, options
+    publicKeyBase58Identifier, optionsForSigner(options, privateKeyBase58)
   );
 
-  signWithKey(executeTxn, privateKeyBase58, publicKeyBase58Identifier);
-
-  return executeTxn;
+  return signBuiltTransaction(executeTxn, privateKeyBase58, publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 // ============================================================================

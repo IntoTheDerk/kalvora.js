@@ -18,7 +18,7 @@ import { logger } from '../../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../../shared/tx/base.js';
 import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.js';
-import { signWithKey } from '../../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction } from '../../sign/builder.js';
 import type { GRPCConfig } from '../../types/index.js';
 import type { UpdateContractOptions } from '../shared/types.js';
 import { validateKeyPair, validateCurrentContractFields, validateUpdateContractOptions } from '../shared/utils.js';
@@ -77,7 +77,7 @@ export async function buildContractUpdateTXN(
   if (options.memo) baseParams.memo = options.memo;
   if (options.feeId !== undefined) baseParams.feeId = options.feeId;
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
-  const base = buildStandardBaseTXN(baseParams, 'kal_txn.ContractUpdateTXN');
+  const base = buildStandardBaseTXN({ ...baseParams, ...(options.grpcConfig?.transactionContext && { context: options.grpcConfig.transactionContext }) }, 'kal_txn.ContractUpdateTXN');
 
   const updateData: Record<string, unknown> = { base, contractId: options.contractId, contractVersion: options.contractVersion };
   if (options.name) updateData.name = options.name;
@@ -94,8 +94,11 @@ export async function buildContractUpdateTXN(
   const effectiveFeeId = options.feeId || KALVORA_NATIVE_TOKEN;
 
   const feeOptions: FeeConfigHelper<ContractUpdateTXN> = {
+    ...(options.proofLayout && { proofLayout: options.proofLayout }),
+    ...(options.nonNativeMultiplier !== undefined && { nonNativeMultiplier: options.nonNativeMultiplier }),
     protoObject: updateTxn, tokenInfoMap: new Map(), baseFeeId: effectiveFeeId,
-    ...(options.feeAmountParts !== undefined && { baseFee: options.feeAmountParts })
+    grpcConfig,
+    ...(options.feeAmountParts !== undefined && { baseFeeParts: options.feeAmountParts })
   };
   await UniversalFeeCalculator.calculateFee<ContractUpdateTXN>(feeOptions);
 
@@ -120,11 +123,9 @@ export async function createContractUpdateTXN(
   });
 
   const { privateKeyBase58, ...unsignedOptions } = options;
-  const updateTxn = await buildContractUpdateTXN(unsignedOptions);
+  const updateTxn = await buildContractUpdateTXN(optionsForSigner(unsignedOptions, privateKeyBase58));
 
-  signWithKey(updateTxn, privateKeyBase58, options.publicKeyBase58Identifier);
-
-  return updateTxn;
+  return signBuiltTransaction(updateTxn, privateKeyBase58, options.publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 // ============================================================================

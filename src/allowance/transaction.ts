@@ -35,7 +35,7 @@ import {
   toTimestampInit,
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 // ============================================================================
@@ -326,14 +326,14 @@ export async function buildAllowanceTXN(
  */
 export async function createAllowanceTXN(
   input: AllowanceInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: StandardTXNOptions = {}
 ): Promise<AllowanceTXN> {
-  if (typeof privateKey !== 'string' || privateKey === '') {
+  if (!privateKey || (typeof privateKey === 'string' && !privateKey.trim())) {
     throw new Error('privateKey is required');
   }
-  const txn = await buildAllowanceTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+  const txn = await buildAllowanceTXN(input, optionsForSigner(options, privateKey));
+  return signBuiltTransaction(txn, privateKey, input.publicKey, options.grpcConfig?.transactionContext);
 }
 
 /**
@@ -381,7 +381,7 @@ export async function buildRevokeAllowanceTXN(
  */
 export async function createRevokeAllowanceTXN(
   input: RevokeAllowanceInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: StandardTXNOptions = {}
 ): Promise<AllowanceTXN> {
   return createAllowanceTXN({ ...input, authorize: false }, privateKey, options);

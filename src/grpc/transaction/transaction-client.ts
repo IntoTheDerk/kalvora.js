@@ -12,6 +12,7 @@ import type { Client } from '@connectrpc/connect';
 
 import { TXNService } from '../../../proto/generated/txn_pb.js';
 import type { 
+  BaseTXN,
   CoinTXN, 
   GovernanceVote, 
   SmartContractExecuteTXN, 
@@ -22,6 +23,8 @@ import type {
   BurnSBTTXN,
   ProposalCancelTXN
 } from '../../../proto/generated/txn_pb.js';
+import { assertTransactionContext, type TransactionContext } from '../../sign/context.js';
+import { assertRegisteredSubmission } from '../../sign/resources.js';
 import type { GRPCConfig } from '../../types/index.js';
 import { createClient } from '../client-factory.js';
 
@@ -78,11 +81,11 @@ export interface TransactionClient {
 /**
  * Maps protobuf `$typeName` → TXNService RPC method name.
  * 
- * All 18 TXNService methods are covered:
+ * Public TXNService methods:
  *   Coin, Mint, ItemMint, Contract, GovernProposal, GovernVote,
  *   SmartContract, SmartContractExecute, SmartContractInstantiate,
  *   ExpenseRatio, NFT, ContractUpdate, DelegatedVoting,
- *   Revoke, Compliance, BurnSBT, Allowance, ProposalCancel
+ *   Revoke, Compliance, BurnSBT, Allowance, ProposalCancel, RegisterWallet
  */
 const TXN_TYPE_TO_RPC: Record<string, keyof Client<typeof TXNService>> = {
   'kal_txn.CoinTXN':                      'coin',
@@ -102,7 +105,8 @@ const TXN_TYPE_TO_RPC: Record<string, keyof Client<typeof TXNService>> = {
   'kal_txn.ComplianceTXN':                 'compliance',
   'kal_txn.BurnSBTTXN':                    'burnSBT',
   'kal_txn.AllowanceTXN':                  'allowance',
-  'kal_txn.ProposalCancelTXN':             'proposalCancel'
+  'kal_txn.ProposalCancelTXN':             'proposalCancel',
+  'kal_txn.WalletRegistration':            'registerWallet'
 };
 
 function toHex(bytes: Uint8Array): string {
@@ -117,9 +121,11 @@ function toHex(bytes: Uint8Array): string {
 
 class TransactionClientImpl implements TransactionClient {
   private client: Client<typeof TXNService>;
+  private readonly transactionContext: TransactionContext | undefined;
 
   constructor(options: GRPCConfig = {}) {
     this.client = createClient(TXNService, { ...options });
+    this.transactionContext = options.transactionContext;
   }
 
   /**
@@ -139,11 +145,13 @@ class TransactionClientImpl implements TransactionClient {
 
     // Reject unsigned transactions before they reach the network: every
     // Kalvora transaction carries its signed hash in `base.hash`.
-    const base = (txn as { base?: { hash?: unknown; signature?: unknown } }).base;
+    const base = (txn as { base?: BaseTXN }).base;
     if (!(base?.hash instanceof Uint8Array) || base.hash.length === 0) {
       throw new Error(`Cannot submit unsigned ${typeName}: base.hash is missing (sign the transaction first)`);
     }
     const hash = toHex(base.hash);
+    if (this.transactionContext) assertTransactionContext(txn, this.transactionContext);
+    if (this.transactionContext || base.publicKey?.walletAddress || typeName === 'kal_txn.WalletRegistration') assertRegisteredSubmission(txn);
 
     // All TXNService methods are unary with the same signature: (input) => Empty
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

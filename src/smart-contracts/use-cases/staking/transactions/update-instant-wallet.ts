@@ -18,6 +18,7 @@
 import type { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../execute/index.js';
 import type { UpdateInstantWalletOptions, StakingOptions } from '../types.js';
 import { createStakingTransaction } from '../utils.js';
@@ -41,7 +42,7 @@ import { createStakingTransaction } from '../utils.js';
 export async function updateInstantWallet(
   updateOpts: UpdateInstantWalletOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: StakingOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!updateOpts.walletAddress) throw new Error('walletAddress is required');
@@ -68,7 +69,7 @@ export async function updateInstantWallet(
 export async function updateInstantWalletAndSend(
   updateOpts: UpdateInstantWalletOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: StakingOptions = {}
 ): Promise<string> {
   const txn = await updateInstantWallet(updateOpts, publicKeyBase58Identifier, privateKeyBase58, options);

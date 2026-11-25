@@ -11,6 +11,28 @@ export interface SmartContractAllowanceInput {
   allowedAmount: string;
 }
 
+/** One expected debit from the caller's wallet, in the named token's smallest units. */
+export interface SmartContractDebit {
+  contractId: string;
+  amountParts: string | bigint;
+}
+
+/** Sum caller transfers and their quoted caller-paid fees into one finite allowance per token. */
+export function allowancesForDebits(
+  transfers: readonly SmartContractDebit[],
+  contractFees: readonly SmartContractDebit[] = []
+): SmartContractAllowanceInput[] {
+  const totals = new Map<string, bigint>();
+  for (const debit of [...transfers, ...contractFees]) {
+    const id = requireContractId(debit.contractId);
+    const parts = BigInt(parseUint256(debit.amountParts, 'amountParts'));
+    totals.set(id, (totals.get(id) ?? 0n) + parts);
+  }
+  return Array.from(totals, ([contractId, amount]) => ({
+    contractId, allowedAmount: parseUint256(amount, 'total caller debit')
+  }));
+}
+
 /** Validate allowances before constructing an execute or instantiate transaction. */
 export function buildSmartContractAllowances(
   inputs: readonly SmartContractAllowanceInput[] | undefined

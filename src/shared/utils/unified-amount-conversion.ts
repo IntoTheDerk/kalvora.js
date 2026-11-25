@@ -10,7 +10,6 @@
 import { Decimal } from 'decimal.js';
 
 import type { AmountInput } from '../../types/index.js';
-import { getDecimalPlacesFromDenomination } from '../fee-calculators/denomination-fallback.js';
 
 import { getTokenDecimals } from './token-config.js';
 import { type TokenInfo } from './token-info.js';
@@ -37,6 +36,25 @@ function toDecimal(amount: AmountInput): Decimal {
     return new Decimal(amount.toString());
   }
   throw new Error(`Invalid amount type: ${typeof amount}`);
+}
+
+type DenominationOptions = { denomination?: string; tokenInfoMap?: Map<string, TokenInfo> };
+
+function partsPerToken(contractId: string, options: DenominationOptions, display: boolean): bigint {
+  const token = options.tokenInfoMap?.get(contractId);
+  const explicit = options.denomination ?? token?.denomination;
+  if (explicit !== undefined) {
+    if (!/^\d+$/u.test(explicit) || BigInt(explicit) === 0n || BigInt(explicit) >= 1n << 256n) {
+      throw new Error(`Invalid denomination for ${contractId}`);
+    }
+    return BigInt(explicit);
+  }
+  try {
+    return 10n ** BigInt(getTokenDecimals(contractId));
+  } catch {
+    if (display) return 1n;
+    throw new Error(`Token decimals not found for ${contractId}. Are you sure you are using a valid contract ID?`);
+  }
 }
 
 /**
@@ -71,46 +89,18 @@ function toDecimal(amount: AmountInput): Decimal {
 export function toSmallestUnits(
   amount: AmountInput,
   contractId: string,
-  options: {
-    denomination?: string;
-    tokenInfoMap?: Map<string, TokenInfo>;
-  } = {}
+  options: DenominationOptions = {}
 ): string {
   if (amount === undefined || amount === null || amount === '') {
     return '';
   }
 
-  const { denomination, tokenInfoMap } = options;
-  const decimalAmount = toDecimal(amount);
-  
-  let decimals: number;
-
-  // Approach 1: Use provided denomination (most efficient for transaction flows)
-  if (denomination) {
-    decimals = getDecimalPlacesFromDenomination(denomination);
-  }
-  // Approach 2: Use token info map if available
-  else if (tokenInfoMap && tokenInfoMap.has(contractId)) {
-    const tokenInfo = tokenInfoMap.get(contractId);
-    if (tokenInfo && tokenInfo.denomination) {
-      decimals = getDecimalPlacesFromDenomination(tokenInfo.denomination);
-    } else {
-      throw new Error(`Token info found but missing denomination for ${contractId}`);
-    }
-  }
-  // Approach 3: Fall back to hardcoded cache
-  else {
-    try {
-      decimals = getTokenDecimals(contractId);
-    } catch {
-      throw new Error(`Token decimals not found for ${contractId}. Are you sure you are using a valid contract ID?`);
-    }
-  }
-
-  const multiplier = new Decimal(10).pow(decimals);
-  const result = decimalAmount.mul(multiplier);
-
-  return result.floor().toString();
+  const parts = partsPerToken(contractId, options, false);
+  const value = toDecimal(amount);
+  if (!value.isFinite()) throw new Error('Amount must be finite');
+  // The inputs are base ten. This precision preserves the entire product before flooring fractional parts.
+  const Exact = Decimal.clone({ precision: Math.max(1, value.precision() + parts.toString().length) });
+  return new Exact(value).mul(parts.toString()).floor().toFixed(0);
 }
 
 /**
@@ -133,40 +123,15 @@ export function toSmallestUnits(
 export function fromSmallestUnits(
   amount: AmountInput,
   contractId: string,
-  options: {
-    denomination?: string;
-    tokenInfoMap?: Map<string, TokenInfo>;
-  } = {}
+  options: DenominationOptions = {}
 ): string {
   if (amount === undefined || amount === null || amount === '') {
     return '0';
   }
 
-  const { denomination, tokenInfoMap } = options;
-  const decimalAmount = toDecimal(amount);
-  
-  let decimals: number;
-
-  // Same unified approach as toSmallestUnits
-  if (denomination) {
-    decimals = getDecimalPlacesFromDenomination(denomination);
-  }
-  else if (tokenInfoMap && tokenInfoMap.has(contractId)) {
-    const tokenInfo = tokenInfoMap.get(contractId);
-    if (tokenInfo && tokenInfo.denomination) {
-      decimals = getDecimalPlacesFromDenomination(tokenInfo.denomination);
-    } else {
-      throw new Error(`Token info found but missing denomination for ${contractId}`);
-    }
-  }
-  else {
-    try {
-      decimals = getTokenDecimals(contractId);
-    } catch {
-      decimals = 0;
-    }
-  }
-
-  const divisor = new Decimal(10).pow(decimals);
-  return decimalAmount.div(divisor).toString();
+  const parts = partsPerToken(contractId, options, true);
+  const value = toDecimal(amount);
+  if (!value.isFinite()) throw new Error('Amount must be finite');
+  const Display = Decimal.clone({ precision: Math.max(Decimal.precision, value.precision() + parts.toString().length) });
+  return new Display(value).div(parts.toString()).toFixed();
 }

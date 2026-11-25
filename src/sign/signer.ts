@@ -38,11 +38,22 @@ export interface KalvoraSigner {
   /** Base58-encoded public key identifier (used to derive address and verify signatures) */
   readonly publicKey: string;
 
+  /** Selected registered address as Base58. One Falcon key may own several addresses. */
+  readonly walletAddress?: string;
+
+  /** Trusted wire chain ID, when this signer is bound to one deployment. */
+  readonly chainId?: Uint8Array;
+
+  /** Registered single-key metadata for transaction signing and fee sizing. */
+  readonly rawPublicKey?: Uint8Array;
+  readonly variant?: import('../../proto/generated/txn_pb.js').FalconVariant;
+  readonly walletHash?: import('../../proto/generated/txn_pb.js').WalletHash;
+
   /**
    * Sign arbitrary transaction bytes and return the raw signature.
    *
    * @param data - The serialized transaction bytes to sign
-   * @returns The raw signature bytes (Ed25519 — 64 bytes, Ed448 — 114 bytes)
+   * @returns Detached signature bytes, padded for Falcon.
    */
   sign(data: Uint8Array): Promise<Uint8Array>;
 }

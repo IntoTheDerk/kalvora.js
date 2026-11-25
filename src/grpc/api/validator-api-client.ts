@@ -1,18 +1,29 @@
 import { create } from '@bufbuild/protobuf';
 import type { Client } from '@connectrpc/connect';
 
-import type { TokenFeeInfoResponse, NonceResponse, BalanceResponse, BaseFeeResponse } from '../../../proto/generated/kal_api_pb.js';
+import type { TokenFeeInfoResponse, NonceResponse, BalanceResponse, BaseFeeResponse, SigningWalletResponse, ProposalDetailRequest, ProposalDetailResponse } from '../../../proto/generated/kal_api_pb.js';
 import { APIService } from '../../../proto/generated/kal_api_pb.js';
 import { NonceRequestSchema, TokenFeeInfoRequestSchema, BalanceRequestSchema, BaseFeeRequestSchema } from '../../../proto/generated/kal_api_pb.js';
 import type { PublicKey } from '../../../proto/generated/txn_pb.js';
-import { TRANSACTION_TYPE } from '../../../proto/generated/txn_pb.js';
-import { sanitizeAndDecodeAddress } from '../../shared/crypto/address-utils.js';
+import { PublicKeySchema, TRANSACTION_TYPE } from '../../../proto/generated/txn_pb.js';
+import { decodeBalanceNonceAddress } from '../../query/keys.js';
+import { decodeWalletAddress, isWalletAddressBytes } from '../../shared/crypto/falcon-address.js';
 import type { GRPCConfig } from '../../types/index.js';
 import { createClient } from '../client-factory.js';
 
 /**
  * Validator API client interface
  */
+export function additionalFeeSigner(identity: string | PublicKey): PublicKey {
+  if (typeof identity === 'string') return create(PublicKeySchema, { walletAddress: decodeWalletAddress(identity) });
+  if (!identity.walletAddress || !isWalletAddressBytes(identity.walletAddress) || identity.witnesses.length ||
+      identity.single.length || identity.multi || identity.smartContractAuth !== undefined ||
+      identity.governanceAuth !== undefined || identity.parentContract !== undefined) {
+    throw new Error('Additional fee signer must contain only a registered wallet address');
+  }
+  return identity;
+}
+
 export interface ValidatorAPIClient {
   /**
    * Get nonce for an address
@@ -32,7 +43,9 @@ export interface ValidatorAPIClient {
   /**
    * Get base fee info for a transaction type and public key
    */
-  getBaseFee(publicKey: PublicKey | undefined, txnType: TRANSACTION_TYPE): Promise<BaseFeeResponse>;
+  getBaseFee(publicKey: PublicKey | undefined, txnType: TRANSACTION_TYPE, additionalSigner?: PublicKey): Promise<BaseFeeResponse>;
+  getSigningWallet(address: string): Promise<SigningWalletResponse>;
+  proposalDetail(request: ProposalDetailRequest): Promise<ProposalDetailResponse>;
 }
 
 /**
@@ -51,7 +64,7 @@ class ValidatorAPIClientImpl implements ValidatorAPIClient {
    */
   async getNonce(address: string): Promise<NonceResponse> {
     const request = create(NonceRequestSchema, {
-      walletAddress: new Uint8Array(sanitizeAndDecodeAddress(address)),
+      walletAddress: decodeBalanceNonceAddress(address),
       encoded: false
     });
     return this.client.nonce(request);
@@ -72,7 +85,7 @@ class ValidatorAPIClientImpl implements ValidatorAPIClient {
    */
   async getBalance(address: string, contractId: string): Promise<BalanceResponse> {
     const request = create(BalanceRequestSchema, {
-      walletAddress: new Uint8Array(sanitizeAndDecodeAddress(address)),
+      walletAddress: decodeBalanceNonceAddress(address),
       contractId: contractId,
       encoded: false
     });
@@ -82,12 +95,21 @@ class ValidatorAPIClientImpl implements ValidatorAPIClient {
   /**
    * Get base fee info for a transaction type and public key
    */
-  async getBaseFee(publicKey: PublicKey | undefined, txnType: TRANSACTION_TYPE): Promise<BaseFeeResponse> {
+  async getBaseFee(publicKey: PublicKey | undefined, txnType: TRANSACTION_TYPE, additionalSigner?: PublicKey): Promise<BaseFeeResponse> {
     const request = create(BaseFeeRequestSchema, {
       ...(publicKey ? { publicKey } : {}),
+      ...(additionalSigner ? { additionalSigner: additionalFeeSigner(additionalSigner) } : {}),
       txnType: txnType
     });
     return this.client.baseFee(request);
+  }
+
+  getSigningWallet(address: string): Promise<SigningWalletResponse> {
+    return this.client.getSigningWallet({ walletAddress: decodeWalletAddress(address) });
+  }
+
+  proposalDetail(request: ProposalDetailRequest): Promise<ProposalDetailResponse> {
+    return this.client.proposalDetail(request);
   }
 }
 

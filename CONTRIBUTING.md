@@ -4,7 +4,7 @@ Thanks for your interest in contributing. This project is community-run — ever
 
 ## Getting Started
 
-**Prerequisites:** Node.js 20 or later.
+**Prerequisites:** Node.js 20.19 or later.
 
 ```bash
 git clone https://github.com/intothederk/kalvora.js.git
@@ -54,10 +54,10 @@ npm run validate   # type-check + lint (zero warnings) + tests
 
 7. **Protocol changes** come from the official Kalvora protos (`txn.proto`,
    `validator.proto`, `kal_api.proto`), which are committed byte-identical
-   (including their CRLF line endings). Never hand-edit `proto/*.proto`; point
-   `KALVORA_PROTO_SOURCE` (or `--source`) at the official release directory or
-   a kalvora-indexer `proto/` checkout, run `npm run proto:sync` then
-   `npm run build:proto`, and `npm run proto:check` in CI. `guardian.proto` is
+   (including each file's original line endings). Never hand-edit `proto/*.proto`.
+   Point `KALVORA_PROTO_SOURCE` (or `--source`) at the release's flat
+   `kal_validator/proto` directory. Run `npm run proto:sync`, then
+   `npm run build:proto`, and use `npm run proto:check` to verify the copies. `guardian.proto` is
    not part of the official release and is only synced when the source has it.
 
 ## Pull Requests

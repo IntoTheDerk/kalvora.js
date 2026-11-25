@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * End-to-End Kalvora Bridge Roundtrip (Kalvora ↔ Solana)
  * 
  * Demonstrates a complete Kalvora bridge lifecycle:

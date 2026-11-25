@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * Solana Bridge Examples (Integration Tests)
  * 
  * This file demonstrates how to use the Solana bridge transaction builders.

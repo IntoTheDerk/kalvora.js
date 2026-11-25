@@ -2,6 +2,12 @@
 
 Connect your site to Kalvora wallets with a few lines of code using `kalvora.js`.
 
+## Fresh-genesis accounts
+
+Pin the operator's chain name and final block-zero hash in your application configuration. Pass the derived, raw 32-byte wire ID to the adapter. A compatible Falcon wallet returns both the complete public key encoded in Bitcoin Base58 and its independently selected Base58 address. The SDK checks the address against the supported hashes of that key and uses the selected address for signing and fee quotes.
+
+An injected provider may return `{ accounts: [{ publicKey, address }] }` or parallel `accounts` and `addresses` arrays. On a deep-link connect callback return the public key in `zera_result` and the selected address in `zera_address`, with the correlated request ID. The sign request includes `walletAddress`. Return the padded detached signature in standard Base64. The receiving dApp verifies it against the pending bytes and the registered key. The WalletConnect signer takes the approved session chain string separately from the trusted wire ID and selected wallet address.
+
 ---
 
 ## Install
@@ -17,6 +23,8 @@ npm install kalvora.js
 ```typescript
 import {
   KalvoraWalletAdapter,
+  configureTransactionContext,
+  deriveChainId,
   buildVoteTXN,
   PROTONET_GRPC_CONFIG,
   signAndFinalize,
@@ -25,17 +33,19 @@ import {
 
 const grpcConfig = PROTONET_GRPC_CONFIG;
 const proposalHash = "00".repeat(32);
+const chainId = deriveChainId("kal_proto", trustedFinalGenesisHashHex);
+configureTransactionContext({ chainId });
 
 // 1. Connect
-const adapter = new KalvoraWalletAdapter();
+const adapter = new KalvoraWalletAdapter({ chainId });
 await adapter.connect();
-console.log("Connected:", adapter.publicKey);
+console.log("Connected:", adapter.address);
 
 // 2. Build an unsigned transaction
 const txn = await buildVoteTXN(
   "KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao",
   proposalHash, // 64 hexadecimal characters
-  adapter.publicKey!,
+  adapter.address!,
   { support: true, grpcConfig },
 );
 
@@ -123,6 +133,7 @@ const adapter = new KalvoraWalletAdapter(config?: WalletAdapterConfig);
 
 | Config        | Type    | Default            | Description                   |
 | ------------- | ------- | ------------------ | ----------------------------- |
+| `chainId` | Uint8Array | required for Falcon | Trusted wire chain ID derived from the final block-zero hash |
 | `autoConnect` | boolean | `false`            | Auto-connect on creation      |
 | `deepLinkUrl` | string  | `KALVORA_DEFAULT_DEEP_LINK` | Deep link base for mobile redirect |
 | `signTimeout` | number  | `300000` (5 min)   | Signing request timeout (ms)  |
@@ -145,7 +156,7 @@ const adapter = new KalvoraWalletAdapter(config?: WalletAdapterConfig);
 | Method                | Description                                              |
 | --------------------- | -------------------------------------------------------- |
 | `connect()`           | Detect provider, request accounts, returns public key (deep-link mode navigates away) |
-| `connectManual(publicKey)` | View-only connection with a known key; signing uses deep links |
+| `connectManual(publicKey, selectedAddress)` | Connect a known Falcon account and sign using deep links |
 | `disconnect()`        | Disconnect and clear state                               |
 | `on(event, handler)`  | Listen for `connect`, `disconnect`, `error`, `signResult`, `signError` |
 | `consumePendingSignResult()` | Take a sign result delivered before your listener was attached |
@@ -178,7 +189,7 @@ const grpcConfig = PROTONET_GRPC_CONFIG;
 
 // Custom hook
 function useKalvoraWallet() {
-  const [adapter] = useState(() => new KalvoraWalletAdapter());
+  const [adapter] = useState(() => new KalvoraWalletAdapter({ chainId }));
   const [connected, setConnected] = useState(false);
   const [publicKey, setPublicKey] = useState<string | null>(null);
 
@@ -212,7 +223,7 @@ function VoteButton({ proposalHash }: { proposalHash: string }) {
     const txn = await buildVoteTXN(
       "KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao",
       proposalHash,
-      adapter.publicKey!,
+      adapter.address!,
       { support: true, grpcConfig },
     );
 
@@ -248,19 +259,19 @@ function VoteButton({ proposalHash }: { proposalHash: string }) {
   const grpcConfig = PROTONET_GRPC_CONFIG;
   const proposalHash = "00".repeat(32);
 
-  const adapter = new KalvoraWalletAdapter();
+  const adapter = new KalvoraWalletAdapter({ chainId });
 
   document.getElementById("connect").onclick = async () => {
     await adapter.connect();
     document.getElementById("vote").disabled = false;
-    document.getElementById("connect").textContent = adapter.publicKey;
+    document.getElementById("connect").textContent = adapter.address;
   };
 
   document.getElementById("vote").onclick = async () => {
     const txn = await buildVoteTXN(
       "KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao",
       proposalHash,
-      adapter.publicKey,
+      adapter.address,
       { support: true, grpcConfig },
     );
     const signed = await signAndFinalize(txn, adapter.signer);
@@ -277,7 +288,7 @@ function VoteButton({ proposalHash }: { proposalHash: string }) {
 When not inside a wallet's dApp browser, redirect users:
 
 ```typescript
-const adapter = new KalvoraWalletAdapter();
+const adapter = new KalvoraWalletAdapter({ chainId });
 
 if (!KalvoraWalletAdapter.isAvailable()) {
   // Redirect to a Kalvora-compatible wallet with this page's URL
@@ -308,7 +319,10 @@ const { uri, approval } = await signClient.connect({
 // show `uri` as a QR code, then:
 const session = await approval();
 
-const signer = new WalletConnectSigner(signClient, session, walletPublicKey);
+const signer = new WalletConnectSigner(signClient, session, walletPublicKey, sessionChainId, {
+  walletAddress: selectedAddress,
+  chainId // derive from the trusted genesis pin as in the quickstart
+});
 const signed = await signAndFinalize(unsignedTxn, signer);
 ```
 
@@ -342,7 +356,7 @@ object:
 const txn = await buildVoteTXN(
   "KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao",
   proposalHash,
-  adapter.publicKey!,
+  adapter.address!,
   { support: true, grpcConfig },
 );
 const signed = await signAndFinalize(txn, adapter.signer!);

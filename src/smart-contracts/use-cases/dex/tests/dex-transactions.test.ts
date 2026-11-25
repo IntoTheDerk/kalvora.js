@@ -79,6 +79,17 @@ describe('Kalvora DEX Transaction Builders', () => {
     vi.clearAllMocks();
   });
 
+  it('passes through the approved caller budget and explicit raw fee cap to the DEX call', async () => {
+    const options = { feeAmountParts: '100', allowances: [
+      { contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', allowedAmount: '1200' }
+    ] };
+    await createLiquidityPool(
+      { tokenA: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', tokenB: 'solana-USDC000000', amountA: '1', amountB: '2', feeRate: 25 },
+      MOCK_PUBLIC_KEY, MOCK_PRIVATE_KEY, options
+    );
+    expect(mockedCreate.mock.lastCall?.[6]).toMatchObject(options);
+  });
+
   // --------------------------------------------------------------------------
   // createLiquidityPool
   // --------------------------------------------------------------------------

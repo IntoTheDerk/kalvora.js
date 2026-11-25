@@ -1,0 +1,80 @@
+syntax = "proto3";
+
+package kal_validator;
+
+import "validator.proto";
+
+// Local validator worker IPC only. These messages are never accepted over
+// peer RPC, signed, included in blocks or persisted in chain state.
+message LocalCandidateSelection {
+    message Deferred {
+        bytes key = 1;
+        uint64 until_height = 2;
+    }
+    bytes chain_id = 1;
+    uint64 height = 2;
+    bytes parent_hash = 3;
+    bytes set_hash = 4;
+    optional bytes next_key = 5;
+    bool pinned = 6;
+    optional bytes pinned_start = 7;
+    repeated Deferred deferred = 8;
+}
+
+message LocalCandidateJob {
+    bytes chain_id = 1;
+    uint64 height = 2;
+    bytes parent_hash = 3;
+    bytes set_hash = 4;
+    LocalCandidateSelection selection = 5;
+    repeated ValidatorAbsenceCertificate expiries = 6;
+    bool allow_empty = 7;
+    repeated bytes timed_out_keys = 8;
+    optional bytes retry_key = 9;
+    // Zero selects the normal bounded ordinary page.
+    uint32 max_pending_rows = 10;
+}
+
+message LocalCandidateProgress {
+    bool page_selected = 1;
+    // Seek-after cursor on a job deadline. A one-row job can report its final
+    // ordinary key here so mandatory work can still run on the next pass.
+    optional bytes next_key = 2;
+    bytes active_key = 3;
+}
+
+message LocalCandidateResult {
+    message Retirement {
+        enum Reason {
+            OVERSIZED = 0;
+            UNFUNDED_PROPOSAL = 1;
+            UNPAYABLE_REGISTRATION = 2;
+        }
+        bytes key = 1;
+        bytes row_digest = 2;
+        Reason reason = 3;
+        uint64 height = 4;
+        bytes parent_hash = 5;
+    }
+    enum Outcome {
+        UNSPECIFIED = 0;
+        READY = 1;
+        EMPTY = 2;
+        RETRY = 3;
+        STORAGE_ERROR = 4;
+        STALE = 5;
+    }
+    Outcome outcome = 1;
+    Block block = 2;
+    LocalCandidateSelection selection = 3;
+    string detail = 4;
+    bool quiet_queues = 5;
+    repeated Retirement retirements = 6;
+}
+
+message LocalCandidateEvent {
+    oneof event {
+        LocalCandidateProgress progress = 1;
+        LocalCandidateResult result = 2;
+    }
+}

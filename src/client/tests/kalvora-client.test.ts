@@ -10,14 +10,18 @@ import { Code, ConnectError, createRouterTransport, type ServiceImpl } from '@co
 import { describe, expect, it, vi } from 'vitest';
 
 import { APIService, type BlockRequest } from '../../../proto/generated/kal_api_pb.js';
-import { TXNService, TXN_STATUS, type MintTXN } from '../../../proto/generated/txn_pb.js';
+import { TXNService, TXN_STATUS, type MintTXN, type WalletRegistration } from '../../../proto/generated/txn_pb.js';
 import { BlockSchema, type Block } from '../../../proto/generated/validator_pb.js';
+import { deserializeTransaction, serializeTransaction } from '../../adapter/serialization.js';
 import { createMintTXN, buildMintTXN, type MintTXNInput } from '../../mint/index.js';
 import { GuardianQueryClient } from '../../query/guardian-client.js';
 import { KALVORA_NATIVE_TOKEN, KALVORA_PROTONET_NETWORK } from '../../shared/network/constants.js';
 import { bytesToHex } from '../../shared/utils/byte-utils.js';
 import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.js';
+import { signAndFinalize } from '../../sign/finalize.js';
 import { ED25519_TEST_KEYS } from '../../test-utils/keys.test.js';
+import { FalconWallet } from '../../wallet-creation/falcon.js';
+import { buildWalletRegistration } from '../../wallet-registration/index.js';
 import { KalvoraClient, createKalvoraClient } from '../kalvora-client.js';
 import { KALVORA_NETWORKS, resolveNetwork, type KalvoraNetwork, type KalvoraNetworkName } from '../networks.js';
 
@@ -232,6 +236,44 @@ describe('KalvoraClient.submit', () => {
 });
 
 describe('KalvoraClient.submitAndWait', () => {
+  it('recovers a committed registration by its saved hash after a lost acknowledgement', async () => {
+    const owner = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: '47'.repeat(32) });
+    const transactionContext = { chainId: owner.chainId };
+    const registration = await buildWalletRegistration(owner, { nonce: 1n, feeAmountParts: '2000', grpcConfig: { transactionContext } });
+    const signed = await signAndFinalize(registration, owner);
+    const saved = serializeTransaction(signed);
+    const hash = bytesToHex(signed.base!.hash!);
+    let finalized: Block | undefined;
+    const submit = vi.fn((received: WalletRegistration) => {
+      expect(serializeTransaction(received)).toEqual(saved);
+      finalized = blockWith(1n, received.base!.hash!, TXN_STATUS.OK);
+      throw new ConnectError('Acknowledgement lost after commit', Code.DeadlineExceeded);
+    });
+    const transport = createRouterTransport(({ service }) => {
+      service(TXNService, { registerWallet: submit });
+      service(APIService, {
+        block: req => {
+          const height = requestedHeight(req);
+          if (height === 0n) return { block: emptyBlock(0n) };
+          if (height === 1n && finalized) return { block: finalized };
+          throw new ConnectError('Unknown height', Code.NotFound);
+        },
+        nonce: () => ({ nonce: finalized ? 1n : 0n }),
+        getSigningWallet: () => finalized ? { identity: signed.identity } : {}
+      });
+    });
+    const client = new KalvoraClient({ grpc: { transactionContext, transport } });
+    const fromHeight = await client.getLatestBlockHeight();
+    await expect(client.submit(deserializeTransaction(saved))).rejects.toMatchObject({ code: Code.DeadlineExceeded });
+    const receipt = await client.query.waitForTransaction(hash, {
+      fromHeight, verifyFinalizedBlock: block => block.blockHeader?.blockHeight === 0n || block.blockHeader?.blockHeight === finalized?.blockHeader?.blockHeight
+    });
+    expect(receipt).toMatchObject({ hash, blockHeight: 1n, success: true });
+    expect(await client.query.getNonce(owner.walletAddress)).toBe(1n);
+    expect((await client.query.getSigningWallet(owner.walletAddress))?.identity).toEqual(signed.identity);
+    expect(submit).toHaveBeenCalledTimes(1);
+  });
+
   it('returns the confirmation from the block produced after submission (OK)', async () => {
     const { transport, submitted } = simulatedChain(40n, { status: TXN_STATUS.OK });
     const client = new KalvoraClient({ grpc: { transport } });

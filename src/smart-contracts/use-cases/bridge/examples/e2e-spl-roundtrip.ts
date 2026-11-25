@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * End-to-End SPL Bridge Roundtrip (Solana SPL ↔ Kalvora)
  * 
  * Demonstrates a complete SPL token bridge lifecycle:

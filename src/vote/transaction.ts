@@ -9,16 +9,19 @@
 
 import { protoInt64, create } from '@bufbuild/protobuf';
 
+import type { ProposalDetailResponse } from '../../proto/generated/kal_api_pb.js';
 import { GovernanceVoteSchema } from '../../proto/generated/txn_pb.js';
 import type { GovernanceVote } from '../../proto/generated/txn_pb.js';
+import { PROPOSAL_PHASE } from '../../proto/generated/validator_pb.js';
 import { UniversalFeeCalculator, type FeeConfigHelper } from '../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../shared/tx/base.js';
-import { hexToBytes } from '../shared/utils/byte-utils.js';
+import type { StandardTXNOptions } from '../shared/tx/standard.js';
+import { bytesEqual, hexToBytes } from '../shared/utils/byte-utils.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { isValidContractId } from '../shared/utils/validation.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 // ============================================================================
@@ -29,10 +32,16 @@ import type { GRPCConfig } from '../types/index.js';
  * Options for building an unsigned GovernanceVote transaction.
  */
 export interface BuildVoteTXNOptions {
+  proofLayout?: StandardTXNOptions['proofLayout'];
   /** Whether to support the proposal (for binary yes/no votes) */
   support?: boolean;
   /** The option index to support (for multi-option votes) */
   supportOption?: number;
+  /** Sign the active zero-based PRE or POST step from the proposal's frozen council list. */
+  preGovernanceStage?: number;
+  postGovernanceStage?: number;
+  /** Read from getProposalDetail. Binds the ballot to the current phase, choice shape and council step. */
+  proposalDetail?: ProposalDetailResponse;
   /** Optional memo */
   memo?: string;
   /** gRPC configuration */
@@ -97,6 +106,7 @@ export async function buildVoteTXN(
 
   const hasSupport = typeof options.support === 'boolean';
   const hasSupportOption = typeof options.supportOption === 'number';
+  if (options.preGovernanceStage !== undefined && options.postGovernanceStage !== undefined) throw new Error('Vote in one council phase at a time');
   if (hasSupport === hasSupportOption) {
     throw new Error('Specify exactly one of: support (boolean) OR supportOption (number)');
   }
@@ -115,6 +125,32 @@ export async function buildVoteTXN(
     proposalBytes = hexToBytes(proposalIdHex);
   } catch {
     throw new Error('Invalid proposalId: must be hex-encoded');
+  }
+
+  let { preGovernanceStage, postGovernanceStage } = options;
+  const detail = options.proposalDetail;
+  if (detail) {
+    if (detail.contractId !== contractId || !bytesEqual(detail.proposalId, proposalBytes)) throw new Error('Vote target does not match proposal detail');
+    if (detail.promotionPending || detail.granular?.closed) throw new Error('This proposal is closed or awaiting promotion');
+    const pre = detail.phase === PROPOSAL_PHASE.PRE_GOVERNANCE;
+    const post = detail.phase === PROPOSAL_PHASE.POST_GOVERNANCE;
+    if ((preGovernanceStage !== undefined && (!pre || preGovernanceStage !== detail.preGovernanceStage)) ||
+        (postGovernanceStage !== undefined && (!post || postGovernanceStage !== detail.postGovernanceStage))) {
+      throw new Error('Vote targets a stale council step');
+    }
+    preGovernanceStage = pre ? detail.preGovernanceStage : undefined;
+    postGovernanceStage = post ? detail.postGovernanceStage : undefined;
+    if ((pre && preGovernanceStage === undefined) || (post && postGovernanceStage === undefined)) {
+      throw new Error('Missing active council step');
+    }
+    if (!pre && !post && (hasSupportOption !== detail.optionsSet ||
+        (options.supportOption !== undefined && options.supportOption >= detail.numberOfOptions))) {
+      throw new Error('Vote choice does not match the proposal');
+    }
+  }
+  const step = preGovernanceStage ?? postGovernanceStage;
+  if (step !== undefined && (!Number.isInteger(step) || step < 0 || step >= 32 || !hasSupport)) {
+    throw new Error('Council votes require binary support and a step from 0 to 31');
   }
 
   let nonce: bigint;
@@ -138,17 +174,20 @@ export async function buildVoteTXN(
   if (feeId !== undefined) baseParams.feeId = feeId;
   if (feeAmountParts !== undefined) baseParams.feeAmountParts = feeAmountParts;
   if (options.timestamp !== undefined) baseParams.timestamp = options.timestamp;
-  const base = buildStandardBaseTXN(baseParams, 'kal_txn.GovernanceVote');
+  const base = buildStandardBaseTXN({ ...baseParams, ...(grpcConfig.transactionContext ? { context: grpcConfig.transactionContext } : {}) }, 'kal_txn.GovernanceVote');
 
   const voteData: Record<string, unknown> = { base, contractId, proposalId: proposalBytes };
   if (hasSupport && options.support !== undefined) voteData.support = options.support;
   if (hasSupportOption && options.supportOption !== undefined) voteData.supportOption = options.supportOption;
+  if (preGovernanceStage !== undefined) voteData.preGovernanceStage = preGovernanceStage;
+  if (postGovernanceStage !== undefined) voteData.postGovernanceStage = postGovernanceStage;
 
   const voteTxn = create(GovernanceVoteSchema, voteData);
   const effectiveFeeId = feeId || KALVORA_NATIVE_TOKEN;
 
   const feeOptions: FeeConfigHelper<GovernanceVote> = {
-    contractId, protoObject: voteTxn, tokenInfoMap: new Map(), baseFeeId: effectiveFeeId,
+    contractId, protoObject: voteTxn, tokenInfoMap: new Map(), baseFeeId: effectiveFeeId, grpcConfig,
+    ...(options.proofLayout ? { proofLayout: options.proofLayout } : {}),
     ...(feeAmountParts !== undefined && { baseFeeParts: feeAmountParts }),
     ...(options.overestimatePercent !== undefined && { overestimatePercent: options.overestimatePercent })
   };
@@ -175,18 +214,17 @@ export async function createVoteTXN(
   contractId: string,
   proposalIdHex: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: CreateVoteTXNOptions = {}
 ): Promise<GovernanceVote> {
   if (!privateKeyBase58) throw new Error('privateKey is required');
 
   // Build unsigned transaction (validation, nonce, fees all handled inside)
-  const voteTxn = await buildVoteTXN(contractId, proposalIdHex, publicKeyBase58Identifier, options);
+  const buildOptions = optionsForSigner(options, privateKeyBase58);
+  const voteTxn = await buildVoteTXN(contractId, proposalIdHex, publicKeyBase58Identifier, buildOptions);
 
   // Sign and hash
-  signWithKey(voteTxn, privateKeyBase58, publicKeyBase58Identifier);
-
-  return voteTxn;
+  return signBuiltTransaction(voteTxn, privateKeyBase58, publicKeyBase58Identifier, buildOptions.grpcConfig?.transactionContext);
 }
 
 // ============================================================================

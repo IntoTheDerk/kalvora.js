@@ -14,10 +14,26 @@
 
 import bs58 from 'bs58';
 
+
 import { createHashChain } from '../../wallet-creation/hash-utils.js';
 
 import { KEY_TYPE, HASH_TYPE, KEY_TYPE_PREFIXES, HASH_TYPE_PREFIXES, SPECIAL_PREFIXES, isValidKeyType, isValidHashType } from './constants.js';
 import type { KeyType, HashType } from './constants.js';
+import { decodeWalletAddress, isWalletAddress, isWalletAddressBytes } from './falcon-address.js';
+
+/** The protocol's only non-wallet payment destination (raw ASCII ":fire:"). */
+export const BURN_ADDRESS = 'W5jE3KNH';
+const BURN_BYTES = bs58.decode(BURN_ADDRESS);
+
+export function isPaymentRecipientBytes(bytes: Uint8Array): boolean {
+  return isWalletAddressBytes(bytes) || (bytes.length === BURN_BYTES.length && BURN_BYTES.every((byte, i) => bytes[i] === byte));
+}
+
+/** Decode an ordinary wallet address or the burn sentinel for operations that permit it. */
+export function decodeRecipientAddress(address: string, allowBurn = false): Uint8Array {
+  const value = address.trim();
+  return allowBurn && value === BURN_ADDRESS ? BURN_BYTES.slice() : decodeWalletAddress(value);
+}
 
 /**
  * Generate Kalvora address from public key and optional hash types
@@ -64,6 +80,8 @@ export function generateAddressFromPublicKey(publicKeyIdentifier: string): strin
   if (!publicKeyIdentifier || typeof publicKeyIdentifier !== 'string') {
     throw new Error('Public key identifier must be a non-empty string');
   }
+
+  if (isWalletAddress(publicKeyIdentifier)) return publicKeyIdentifier;
 
   // Extract the raw public key bytes from the identifier
   const lastUnderscoreIndex = publicKeyIdentifier.lastIndexOf('_');

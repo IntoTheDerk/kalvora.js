@@ -11,6 +11,8 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import bs58 from 'bs58';
 
+import { isWalletAddressBytes } from '../shared/crypto/falcon-address.js';
+
 const TEXT = new TextEncoder();
 
 const DOMAIN_CONTRACT_DATA = 'KALVORA_CONTRACT_DATA_V1';
@@ -23,7 +25,8 @@ const NETWORK_ID = 'KALVORA_MAINNET_V1';
 export const CREATOR_AUTHORIZATION = {
   SINGLE_KEY: 1,
   SMART_CONTRACT: 2,
-  GOVERNANCE: 3
+  GOVERNANCE: 3,
+  WALLET_ADDRESS: 4
 } as const;
 
 /** Single-key algorithm values written into an ordinary contract-ID preimage. */
@@ -119,7 +122,9 @@ function u32(value: number): Uint8Array {
   return out;
 }
 
-function u64(value: bigint): Uint8Array {
+function u64(input: bigint | number): Uint8Array {
+  if (typeof input === 'number' && !Number.isSafeInteger(input)) throw new RangeError('Use bigint for a uint64 outside the safe integer range');
+  const value = BigInt(input);
   if (value < 0n || value > 0xffffffffffffffffn) {
     throw new RangeError('u64 out of range');
   }
@@ -176,7 +181,7 @@ export function deriveContractDataHash(input: ContractDataInput): Uint8Array {
   parts.push(u32(releases.length));
   for (const entry of releases) {
     parts.push(
-      u64(BigInt(entry.seconds)),
+      u64(entry.seconds),
       u32(entry.nanos),
       prefixedString(canonicalDecimal(entry.amount))
     );
@@ -203,23 +208,31 @@ export function deriveGenesisContractId(vanityNonce: bigint | number): string {
   const digest = blake3(concat([
     prefixedString(DOMAIN_GENESIS_ID),
     prefixedString(NETWORK_ID),
-    u64(BigInt(vanityNonce))
+    u64(vanityNonce)
   ]));
   return encodeContractId(digest);
 }
 
 /** Ordinary ID from creator authorization, vanity nonce, and the contract-data hash. */
 export function deriveOrdinaryContractId(input: OrdinaryContractIdInput): string {
+  const registered = input.creatorAuthorizationType === CREATOR_AUTHORIZATION.WALLET_ADDRESS;
+  const internal = input.creatorAuthorizationType === CREATOR_AUTHORIZATION.SMART_CONTRACT || input.creatorAuthorizationType === CREATOR_AUTHORIZATION.GOVERNANCE;
+  if (internal && (input.creatorKeyAlgorithm !== CREATOR_KEY_ALGORITHM.NONE || input.creatorAuthorizationBytes.length === 0)) {
+    throw new Error('Internal creators require algorithm zero and an authority identifier');
+  }
+  if (registered && (input.creatorKeyAlgorithm !== 0 || !isWalletAddressBytes(input.creatorAuthorizationBytes))) {
+    throw new Error('Wallet creators require algorithm zero and a complete wallet address');
+  }
   if (input.contractDataHash.length !== 32) {
     throw new Error('contractDataHash must be 32 bytes');
   }
   const digest = blake3(concat([
-    prefixedString(DOMAIN_ORDINARY_ID),
+    prefixedString(registered ? 'KALVORA_CONTRACT_ID_V2' : DOMAIN_ORDINARY_ID),
     prefixedString(NETWORK_ID),
     u8(input.creatorAuthorizationType),
     u8(input.creatorKeyAlgorithm),
     lengthPrefixed(input.creatorAuthorizationBytes),
-    u64(BigInt(input.vanityNonce)),
+    u64(input.vanityNonce),
     lengthPrefixed(input.contractDataHash)
   ]));
   return encodeContractId(digest);

@@ -39,10 +39,12 @@ import { create, protoInt64, type DescMessage, type MessageInitShape, type Messa
 
 import type { BaseTXN } from '../../../proto/generated/txn_pb.js';
 import type { GRPCConfig } from '../../types/index.js';
-import { isValidPublicKeyIdentifier, sanitizeAndDecodeAddress } from '../crypto/address-utils.js';
+import { decodeRecipientAddress, isValidPublicKeyIdentifier } from '../crypto/address-utils.js';
+import { isWalletAddress } from '../crypto/falcon-address.js';
 import {
   UniversalFeeCalculator,
   type FeeConfigHelper,
+  type FeeConfig,
   type TransactionMessage
 } from '../fee-calculators/universal-fee-calculator.js';
 import { logger } from '../monitoring/index.js';
@@ -65,6 +67,10 @@ import { buildStandardBaseTXN, getAddressAndNonce } from './base.js';
  * (nonce, base fee) or fall back to documented defaults.
  */
 export interface StandardTXNOptions {
+  proofLayout?: FeeConfig['proofLayout'];
+  proposalStages?: FeeConfig['proposalStages'];
+  safeSendFeeScaled?: string;
+  nonNativeMultiplier?: number;
   /**
    * gRPC endpoint used for nonce and fee lookups.
    * Defaults to {@link PROTONET_GRPC_CONFIG} (which currently targets protonet).
@@ -163,12 +169,12 @@ export function requireContractId(value: unknown, field = 'contractId'): string 
  * @param field - Field name used in the error message
  * @returns Raw address bytes suitable for protobuf `bytes` fields
  */
-export function parseAddress(address: unknown, field = 'address'): Uint8Array {
+export function parseAddress(address: unknown, field = 'address', allowBurn = false): Uint8Array {
   if (typeof address !== 'string' || address.trim() === '') {
     throw new Error(`${field} must be a non-empty base58 address`);
   }
   try {
-    return new Uint8Array(sanitizeAndDecodeAddress(address));
+    return decodeRecipientAddress(address, allowBurn);
   } catch (error) {
     throw new Error(`${field} is not a valid base58 address: ${(error as Error).message}`);
   }
@@ -332,13 +338,13 @@ export async function buildStandardTransaction<Desc extends DescMessage>(
   if (typeof publicKeyId !== 'string' || publicKeyId.trim() === '') {
     throw new Error('publicKey identifier is required');
   }
-  if (!isValidPublicKeyIdentifier(publicKeyId)) {
+  if (!isWalletAddress(publicKeyId) && !isValidPublicKeyIdentifier(publicKeyId)) {
     throw new Error('publicKey is not a valid Kalvora public key identifier');
   }
   // Canonicalise (trim, strip leading zeros) so the wire value is exactly
   // the validated integer.
   const feeAmountParts = options.feeAmountParts !== undefined
-    ? parsePartsAmount(options.feeAmountParts, 'feeAmountParts')
+    ? parseUint256(parsePartsAmount(options.feeAmountParts, 'feeAmountParts'), 'feeAmountParts', false)
     : undefined;
   if (
     options.overestimatePercent !== undefined &&
@@ -358,6 +364,7 @@ export async function buildStandardTransaction<Desc extends DescMessage>(
     publicKeyId,
     nonce,
     feeId,
+    ...(options.grpcConfig?.transactionContext && { context: options.grpcConfig.transactionContext }),
     ...(options.memo !== undefined ? { memo: options.memo } : {}),
     ...(options.timestamp !== undefined ? { timestamp: options.timestamp } : {}),
     ...(feeAmountParts !== undefined ? { feeAmountParts } : {})
@@ -375,6 +382,10 @@ export async function buildStandardTransaction<Desc extends DescMessage>(
       protoObject: message as unknown as TransactionMessage,
       tokenInfoMap: new Map(),
       baseFeeId: feeId,
+      ...(options.proofLayout && { proofLayout: options.proofLayout }),
+      ...(options.proposalStages && { proposalStages: options.proposalStages }),
+      ...(options.safeSendFeeScaled !== undefined && { safeSendFeeScaled: options.safeSendFeeScaled }),
+      ...(options.nonNativeMultiplier !== undefined && { nonNativeMultiplier: options.nonNativeMultiplier }),
       ...(contractId !== undefined ? { contractId } : {}),
       ...(options.grpcConfig !== undefined ? { grpcConfig: options.grpcConfig } : {}),
       ...(feeAmountParts !== undefined ? { baseFeeParts: feeAmountParts } : {}),
@@ -409,7 +420,7 @@ export async function submitStandardTransaction(
   txn: { $typeName: string; base?: BaseTXN },
   grpcConfig: GRPCConfig = {}
 ): Promise<string> {
-  if (!txn.base?.signature || !txn.base.hash) {
+  if ((!txn.base?.signature?.length && !txn.base?.publicKey?.witnesses.length) || !txn.base?.hash?.length) {
     throw new Error('Transaction must be signed before submission (missing signature or hash)');
   }
   const { submitTransaction } = await import('../../grpc/transaction/transaction-client.js');

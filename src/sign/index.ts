@@ -30,7 +30,12 @@ export {
   getTransactionSigningBytes,
   getSponsorSigningBytes,
   finalizeTransactionHash,
+  countersignTransaction,
+  type TransactionSigner,
+  type PolicySigner,
   type CoinTXNKeyPair
 } from './finalize.js';
+
+export { assertAuthenticationBudget } from './resources.js';
 
 export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './context.js';

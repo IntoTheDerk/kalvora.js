@@ -1,78 +1,28 @@
-/**
- * Transaction Module - Validator Operator Transactions
- *
- * Builds, signs, and submits the two transactions a validator *operator*
- * sends to the network about their own node:
- *
- * - `ValidatorRegistration` — register (or deregister) a validator node.
- *   Carries the node's {@link Validator} record plus a second, node-generated
- *   key pair that co-signs the transaction hash.
- * - `ValidatorHeartbeat` — periodic liveness/version report.
- *
- * Unlike most transactions these are **not** submitted through `TXNService`;
- * they go to `kal_validator.ValidatorService` (rpcs `ValidatorRegistration`
- * and `ValidatorHeartbeat`).
- *
- * Envelope handling (nonce, `BaseTXN`, fee) is delegated to the shared
- * standard transaction pipeline in `shared/tx/standard`.
- *
- * ## Generated-key signature — V1 signing order
- *
- * Both signers validate the pinned chain identity and V1 context. The
- * generated-key signature is computed **after** the operator has signed, as
- * `sign(generatedPrivateKey, base.hash)`, where `base.hash` is the SHA3-256
- * hash produced by operator signing (with `generated_signature` still empty).
- * `generated_signature` is consequently **not** covered by `base.signature`
- * or `base.hash`.
- *
- * @module validator-ops/transaction
- */
-
-import { clone, create } from '@bufbuild/protobuf';
+/** Registered validator owner assignments and operational heartbeats. */
+import { clone, create, toBinary } from '@bufbuild/protobuf';
 
 import {
-  AttestationKeySchema,
-  PublicKeySchema,
-  ValidatorHeartbeatSchema,
-  ValidatorRegistrationSchema,
-  ValidatorSchema,
-  type BaseTXN,
-  type AttestationKey,
-  type Validator,
-  type ValidatorHeartbeat,
-  type ValidatorRegistration
+  AttestationKeySchema, PublicKeySchema, ValidatorHeartbeatSchema, ValidatorRegistrationSchema, ValidatorSchema,
+  type AttestationKey, type BaseTXN, type PublicKey, type Validator, type ValidatorHeartbeat, type ValidatorRegistration
 } from '../../proto/generated/txn_pb.js';
 import { ValidatorService } from '../../proto/generated/validator_pb.js';
 import { createClient } from '../grpc/client-factory.js';
-import {
-  getKeyTypeFromPublicKey,
-  getPublicKeyBytes,
-  isValidPublicKeyIdentifier
-} from '../shared/crypto/address-utils.js';
-import { KEY_TYPE } from '../shared/crypto/constants.js';
-import { signTransactionData } from '../shared/crypto/signature-utils.js';
-import {
-  buildStandardTransaction,
-  parseUint64,
-  toTimestampInit,
-  type StandardTXNOptions
-} from '../shared/tx/standard.js';
+import { decodeWalletAddress, deriveFalconAddress, falconVariantFromKey, isWalletAddress, isWalletAddressBytes } from '../shared/crypto/falcon-address.js';
+import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
+import { getAddressAndNonce } from '../shared/tx/base.js';
+import { buildStandardTransaction, parseUint64, toTimestampInit, type StandardTXNOptions } from '../shared/tx/standard.js';
 import { bytesEqual, bytesToHex } from '../shared/utils/byte-utils.js';
-import { assertTransactionContext, type TransactionContext } from '../sign/context.js';
-import { finalizeTransactionHash, signWithKey } from '../sign/finalize.js';
+import { assertTransactionContext } from '../sign/context.js';
+import { finalizeTransactionHash, getTransactionSigningBytes, signAndFinalize } from '../sign/finalize.js';
+import { assertRegisteredSubmission } from '../sign/resources.js';
+import type { KalvoraSigner } from '../sign/signer.js';
 import type { GRPCConfig } from '../types/index.js';
+import { verifyFalconSignature } from '../wallet-creation/falcon.js';
 
-// ============================================================================
-// TYPES
-// ============================================================================
-
-/**
- * Options accepted by the validator-operator builders.
- *
- * Identical to the shared {@link StandardTXNOptions}. Pass both `nonce` and
- * `feeAmountParts` to build fully offline and deterministically.
- */
 export type ValidatorOpsTXNOptions = StandardTXNOptions;
+export type ValidatorWalletSigner = Required<KalvoraSigner>;
+type ValidatorWalletIdentity = Pick<ValidatorWalletSigner, 'walletAddress' | 'rawPublicKey' | 'walletHash' | 'chainId'> &
+  Partial<Pick<ValidatorWalletSigner, 'variant'>>;
 
 /** BLS12-381 attestation key and proof supplied by the validator operator. */
 export interface AttestationKeyInput {
@@ -90,9 +40,7 @@ export interface AttestationKeyInput {
  */
 export interface ValidatorInfoInput {
   /**
-   * Base58 public key identifier stored in `Validator.public_key` (the
-   * "original" public key). Defaults to the registration's operator
-   * `publicKey` when omitted.
+   * Registered owner address. Defaults to the owner in the registration envelope.
    */
   publicKey?: string;
   /** Hostname or IP address the node is reachable at. Non-empty, no whitespace. */
@@ -127,44 +75,26 @@ export interface ValidatorInfoInput {
  * Readable input for a {@link ValidatorRegistration}.
  */
 export interface ValidatorRegistrationInput {
-  /** Base58 public key identifier of the operator (the `BaseTXN` signer). */
+  /** Registered owner address. */
   publicKey: string;
   /** The validator node record. */
   validator: ValidatorInfoInput;
   /** `true` to register the node, `false` to deregister it. */
   register: boolean;
   /**
-   * Base58 public key identifier of the node's generated key, stored in
-   * `generated_public_key`. Required by {@link buildValidatorRegistrationTXN};
-   * optional for {@link createValidatorRegistrationTXN}, which takes it from
-   * the generated key pair (and rejects a mismatch).
+   * Registered operational wallet address. Omit for deregistration.
    */
   generatedPublicKey?: string;
 }
 
-/** The node-generated key pair that co-signs a registration. */
-export interface GeneratedKeyPair {
-  /** Base58 public key identifier (e.g. `A_…` or `B_…`). */
-  publicKey: string;
-  /** Base58 private key matching `publicKey`. */
-  privateKey: string;
-}
-
-/**
- * Readable input for a {@link ValidatorHeartbeat}.
- */
 export interface ValidatorHeartbeatInput {
-  /** Base58 public key identifier of the operator (the `BaseTXN` signer). */
+  /** Operational wallet named in the signed heartbeat. */
   publicKey: string;
-  /** Whether the node is online. */
+  /** Owner of the stake. Its nonce is consumed and its balance pays the fee. */
+  ownerAddress: string;
   online: boolean;
-  /** Node software version (uint32). */
   version: number;
 }
-
-// ============================================================================
-// VALIDATION HELPERS
-// ============================================================================
 
 const UINT32_MAX = 0xFFFF_FFFF;
 
@@ -219,15 +149,8 @@ function requirePublicKeyId(value: unknown, field: string): string {
   if (typeof value !== 'string' || value.trim() === '') {
     throw new Error(`${field} identifier is required`);
   }
-  if (!isValidPublicKeyIdentifier(value)) {
-    throw new Error(`${field} is not a valid Kalvora public key identifier`);
-  }
-  return value;
-}
-
-function requirePrivateKey(value: unknown, field: string): string {
-  if (typeof value !== 'string' || value.trim() === '') {
-    throw new Error(`${field} is required`);
+  if (!isWalletAddress(value)) {
+    throw new Error(`${field} is not a valid registered-wallet address`);
   }
   return value;
 }
@@ -250,9 +173,10 @@ function buildAttestationKey(input: AttestationKeyInput): AttestationKey {
 function buildValidatorRecord(input: ValidatorInfoInput, operatorPublicKey: string): Validator {
   requireObject(input, 'validator object is required');
   const publicKeyId = requirePublicKeyId(input.publicKey ?? operatorPublicKey, 'validator.publicKey');
+  if (publicKeyId !== operatorPublicKey) throw new Error('validator.publicKey must match the owner address');
   rejectStakedContractIds((input as { stakedContractIds?: unknown }).stakedContractIds);
   return create(ValidatorSchema, {
-    publicKey: { single: getPublicKeyBytes(publicKeyId) },
+    publicKey: { walletAddress: decodeWalletAddress(publicKeyId) },
     host: parseHost(input.host),
     clientPort: parsePort(input.clientPort, 'validator.clientPort'),
     validatorPort: parsePort(input.validatorPort, 'validator.validatorPort'),
@@ -276,333 +200,165 @@ function requireSigned(txn: { base?: BaseTXN } | null | undefined): BaseTXN & { 
   return base as BaseTXN & { hash: Uint8Array };
 }
 
-// ============================================================================
-// VALIDATOR REGISTRATION
-// ============================================================================
-
-/**
- * Build an **unsigned** {@link ValidatorRegistration}.
- *
- * `generated_public_key` is populated from `input.generatedPublicKey`;
- * `generated_signature` is left empty (see {@link attachGeneratedSignature}).
- *
- * Unless both `options.nonce` and `options.feeAmountParts` are set, this
- * function queries the network for the operator's next nonce and the base fee.
- * The automatic fee includes the size of the 64/114-byte `generated_signature`
- * (a zero-filled placeholder reserves it during fee calculation).
- *
- * @param input - Registration parameters (see {@link ValidatorRegistrationInput})
- * @param options - Shared standard transaction options
- * @returns The unsigned protobuf `ValidatorRegistration`
- *
- * @throws Error when `publicKey` / `generatedPublicKey` are missing or invalid,
- *   `register` is not a boolean, `validator.host` is empty, a port is not in
- *   `1`–`65535`, a staked contract ID is invalid or duplicated, `benchmark` /
- *   `lastHeartbeat` are not uint64, `version` is not uint32, or any shared
- *   option is invalid.
- *
- * @example
- * ```typescript
- * import { buildValidatorRegistrationTXN, signWithKey, attachGeneratedSignature } from 'kalvora.js';
- *
- * const txn = await buildValidatorRegistrationTXN(
- *   {
- *     publicKey: 'A_<operator public key>',
- *     generatedPublicKey: 'A_<node generated public key>',
- *     register: true,
- *     validator: { host: 'node1.example.com', clientPort: '50052', validatorPort: '50051', version: 100 }
- *   },
- *   { nonce: 3, feeAmountParts: '1000' } // offline + deterministic
- * );
- * signWithKey(txn, operatorPrivateKey, 'A_<operator public key>');
- * attachGeneratedSignature(txn, generatedPrivateKey, 'A_<node generated public key>');
- * ```
- */
 export async function buildValidatorRegistrationTXN(
-  input: ValidatorRegistrationInput,
-  options: ValidatorOpsTXNOptions = {}
+  input: ValidatorRegistrationInput, options: ValidatorOpsTXNOptions = {}
 ): Promise<ValidatorRegistration> {
   requireObject(input, 'buildValidatorRegistrationTXN: input object is required');
-  const operatorPublicKey = requirePublicKeyId(input.publicKey, 'publicKey');
-  const generatedPublicKey = requirePublicKeyId(input.generatedPublicKey, 'generatedPublicKey');
+  const owner = requirePublicKeyId(input.publicKey, 'publicKey');
   const register = requireBoolean(input.register, 'register');
-  const validator = buildValidatorRecord(input.validator, operatorPublicKey);
-
-  // The generated-key signature is attached after operator signing, but it is
-  // part of the transaction the network prices. Reserve its size with a
-  // zero-filled placeholder while fees are calculated, then clear it.
-  const txn = await buildStandardTransaction({
-    operation: 'buildValidatorRegistrationTXN',
-    schema: ValidatorRegistrationSchema,
-    publicKeyId: operatorPublicKey,
-    contractId: undefined,
-    fields: {
-      validator,
-      register,
-      generatedPublicKey: create(PublicKeySchema, { single: getPublicKeyBytes(generatedPublicKey) }),
-      generatedSignature: new Uint8Array(signatureLength(generatedPublicKey))
-    },
+  const validator = buildValidatorRecord(input.validator, owner);
+  if (options.feeId !== undefined && options.feeId !== KALVORA_NATIVE_TOKEN) throw new Error('Validator registration feeId must be native KALV');
+  if (options.proofLayout?.sponsor) throw new Error('Validator registration cannot be sponsored');
+  const operator = register ? requirePublicKeyId(input.generatedPublicKey, 'generatedPublicKey') : undefined;
+  if (!register && input.generatedPublicKey !== undefined) throw new Error('Deregistration must omit the generated public key');
+  if (operator === owner) throw new Error('Owner and operator must use distinct wallets');
+  return buildStandardTransaction({
+    operation: 'buildValidatorRegistrationTXN', schema: ValidatorRegistrationSchema, publicKeyId: owner,
+    fields: { validator, register, ...(operator && { generatedPublicKey: { walletAddress: decodeWalletAddress(operator) } }) },
     options
   });
-  txn.generatedSignature = new Uint8Array(0);
-  return txn;
 }
 
-/** Raw signature length for a key identifier: Ed25519 = 64 bytes, Ed448 = 114 bytes. */
-function signatureLength(publicKeyId: string): number {
-  return getKeyTypeFromPublicKey(publicKeyId) === KEY_TYPE.ED448 ? 114 : 64;
+function checkSigner(signer: ValidatorWalletIdentity, address: Uint8Array | undefined): void {
+  if (!Number.isInteger(signer.walletHash) || !(signer.chainId instanceof Uint8Array) || signer.chainId.length !== 32 ||
+      (signer.variant !== undefined && signer.variant !== falconVariantFromKey(signer.rawPublicKey))) {
+    throw new Error('Invalid validator wallet signer metadata');
+  }
+  if (!address || !bytesEqual(address, decodeWalletAddress(signer.walletAddress)) ||
+      !bytesEqual(address, deriveFalconAddress(signer.rawPublicKey, signer.walletHash))) {
+    throw new Error('Signer does not match the registered wallet address');
+  }
 }
 
-/**
- * Set `generated_signature` on an operator-signed {@link ValidatorRegistration}.
- *
- * Computes `generated_signature = sign(generatedPrivateKey, base.hash)`, per
- * the proto comment "signature of the generated public key (signing txn
- * hash)". The transaction must already carry `base.signature` and `base.hash`
- * (i.e. be signed by the operator), and its `generated_public_key` must match
- * `generatedPublicKey`.
- * The supplied hash must match the owner-signed registration body, so the
- * operational signature cannot authorize a foreign hash hidden behind local context.
- *
- * V1 validators verify `generated_signature` over `base.hash`, computed with
- * `generated_signature` empty. Because it is set after hashing, it is not covered by
- * `base.signature` / `base.hash`, and calling this does not invalidate the
- * operator signature. Calling it again replaces the previous value.
- *
- * @param txn - Operator-signed registration (mutated in place)
- * @param generatedPrivateKey - Base58 private key of the node-generated key
- * @param generatedPublicKey - Base58 public key identifier of the node-generated key
- * @param context - Explicit trusted chain context, or the configured context
- * @returns The same transaction, with `generatedSignature` populated
- *
- * @throws Error when the transaction is not operator-signed, a key is missing,
- *   `generatedPublicKey` does not match `txn.generatedPublicKey`, or the V1
- *   context does not match the pinned chain and registration type, or the hash
- *   does not match the signed registration body.
- *
- * @example
- * ```typescript
- * signWithKey(txn, operatorPrivateKey, operatorPublicKey);
- * attachGeneratedSignature(txn, node.privateKey, node.publicKey);
- * ```
- */
-export function attachGeneratedSignature(
-  txn: ValidatorRegistration,
-  generatedPrivateKey: string,
-  generatedPublicKey: string,
-  context?: TransactionContext
-): ValidatorRegistration {
-  requireObject(txn, 'attachGeneratedSignature: transaction is required');
-  const privateKey = requirePrivateKey(generatedPrivateKey, 'generatedPrivateKey');
-  const publicKeyId = requirePublicKeyId(generatedPublicKey, 'generatedPublicKey');
-  const base = txn.base;
-  if (!base?.signature || base.signature.length === 0 || !base.hash || base.hash.length === 0) {
-    throw new Error('attachGeneratedSignature: transaction must be signed by the operator first (missing base.signature or base.hash)');
+function singleAddress(key?: PublicKey): Uint8Array {
+  const address = key?.walletAddress;
+  if (!key || !address || !isWalletAddressBytes(address) ||
+      !bytesEqual(toBinary(PublicKeySchema, key), toBinary(PublicKeySchema, create(PublicKeySchema, { walletAddress: address })))) {
+    throw new Error('Validator roles require registered single-key wallet addresses without witnesses');
   }
-  assertTransactionContext(txn, context);
-  const canonical = finalizeTransactionHash(clone(ValidatorRegistrationSchema, txn), context);
-  const canonicalHash = canonical.base?.hash;
-  if (!canonicalHash || !bytesEqual(base.hash, canonicalHash)) {
-    throw new Error('attachGeneratedSignature: base.hash does not match the signed registration body');
-  }
-  const embedded = txn.generatedPublicKey?.single;
-  if (!embedded || !bytesEqual(embedded, getPublicKeyBytes(publicKeyId))) {
-    throw new Error('attachGeneratedSignature: generatedPublicKey does not match the transaction\'s generated_public_key');
-  }
-  txn.generatedSignature = signTransactionData(base.hash, privateKey, publicKeyId);
-  return txn;
+  return address;
 }
 
-/**
- * Build and fully sign a {@link ValidatorRegistration}.
- *
- * Steps, in order:
- * 1. {@link buildValidatorRegistrationTXN} with `generated_public_key` set to
- *    `generatedKeyPair.publicKey` (and `generated_signature` empty).
- * 2. Operator signing via `signWithKey` — sets `base.signature`, then
- *    `base.hash = SHA3-256(serialized signed txn)`.
- * 3. {@link attachGeneratedSignature} — `generated_signature =
- *    sign(generatedKeyPair.privateKey, base.hash)`.
- *
- * Both signatures use the V1 registration context. The generated signature
- * remains outside the owner signature and transaction hash.
- *
- * @param input - Registration parameters; `generatedPublicKey` may be omitted
- * @param operatorPrivateKey - Operator's base58 private key (matching `input.publicKey`)
- * @param generatedKeyPair - The node-generated key pair
- * @param options - Shared standard transaction options
- * @returns The signed registration, ready for {@link sendValidatorRegistrationTXN}
- *
- * @throws Error when a key is missing, `input.generatedPublicKey` differs from
- *   `generatedKeyPair.publicKey`, on any validation error from
- *   {@link buildValidatorRegistrationTXN}, or when signing fails.
- *
- * @example
- * ```typescript
- * const signed = await createValidatorRegistrationTXN(
- *   {
- *     publicKey: operator.publicKey,
- *     register: true,
- *     validator: {
- *       host: 'node1.example.com',
- *       clientPort: '50052',
- *       validatorPort: '50051',
- *       version: 100
- *     }
- *   },
- *   operator.privateKey,
- *   { publicKey: node.publicKey, privateKey: node.privateKey }
- * );
- * const hash = await sendValidatorRegistrationTXN(signed);
- * ```
- */
+function checkAssignment(txn: ValidatorRegistration): void {
+  const owner = singleAddress(txn.base?.publicKey);
+  if (!bytesEqual(owner, singleAddress(txn.validator?.publicKey))) throw new Error('Validator owner identities differ');
+  if (txn.base?.feePayer || txn.base?.feeId !== KALVORA_NATIVE_TOKEN || txn.base.nonce <= 0n) {
+    throw new Error('Validator registration requires native KALV, a positive owner nonce and no sponsor');
+  }
+  if (txn.register) {
+    if (bytesEqual(owner, singleAddress(txn.generatedPublicKey))) throw new Error('Owner and operator must use distinct wallets');
+  } else if (txn.generatedPublicKey || txn.generatedSignature.length) {
+    throw new Error('Deregistration must omit the operational key and proof');
+  }
+}
+
+/** Verify the owner's approval, sign the same assignment bytes, then hash both proofs. */
+export async function attachGeneratedSignature(
+  txn: ValidatorRegistration, owner: ValidatorWalletIdentity, operator: ValidatorWalletSigner
+): Promise<ValidatorRegistration> {
+  if (!txn.register || !txn.base?.signature || txn.base.feePayer) throw new Error('Expected an owner-signed, unsponsored assignment');
+  checkAssignment(txn);
+  if (bytesEqual(owner.rawPublicKey, operator.rawPublicKey)) throw new Error('Owner and operator must use distinct underlying keys');
+  checkSigner(owner, txn.base.publicKey?.walletAddress);
+  checkSigner(operator, txn.generatedPublicKey?.walletAddress);
+  assertTransactionContext(txn, { chainId: owner.chainId });
+  const context = { chainId: operator.chainId };
+  const bytes = getTransactionSigningBytes(txn, context);
+  const ownerProof = txn.base.signature.slice();
+  if (!verifyFalconSignature(owner.rawPublicKey, bytes, ownerProof)) throw new Error('Invalid owner signature');
+  const original = toBinary(ValidatorRegistrationSchema, txn);
+  const signature = await operator.sign(bytes.slice());
+  if (!bytesEqual(original, toBinary(ValidatorRegistrationSchema, txn))) throw new Error('Assignment changed while signing');
+  if (!verifyFalconSignature(operator.rawPublicKey, bytes, signature)) throw new Error('Invalid operator signature');
+  const completed = clone(ValidatorRegistrationSchema, txn);
+  completed.generatedSignature = signature;
+  finalizeTransactionHash(completed, context);
+  assertRegisteredSubmission(completed);
+  return Object.assign(txn, completed);
+}
+
+/** Build an assignment with both proofs, or an owner-only deregistration. */
 export async function createValidatorRegistrationTXN(
-  input: ValidatorRegistrationInput,
-  operatorPrivateKey: string,
-  generatedKeyPair: GeneratedKeyPair,
+  input: ValidatorRegistrationInput, owner: ValidatorWalletSigner, operator?: ValidatorWalletSigner,
   options: ValidatorOpsTXNOptions = {}
 ): Promise<ValidatorRegistration> {
-  requireObject(input, 'createValidatorRegistrationTXN: input object is required');
-  requirePrivateKey(operatorPrivateKey, 'operatorPrivateKey');
-  requireObject(generatedKeyPair, 'generatedKeyPair is required');
-  const generatedPrivateKey = requirePrivateKey(generatedKeyPair.privateKey, 'generatedKeyPair.privateKey');
-  const generatedPublicKey = requirePublicKeyId(generatedKeyPair.publicKey, 'generatedKeyPair.publicKey');
-  if (input.generatedPublicKey !== undefined && input.generatedPublicKey !== generatedPublicKey) {
-    throw new Error('input.generatedPublicKey does not match generatedKeyPair.publicKey');
-  }
-
-  const txn = await buildValidatorRegistrationTXN({ ...input, generatedPublicKey }, options);
-  signWithKey(txn, operatorPrivateKey, input.publicKey);
-  return attachGeneratedSignature(txn, generatedPrivateKey, generatedPublicKey);
+  if (input.register !== Boolean(operator)) throw new Error('Supply an operational signer only for an assignment');
+  if (operator && input.generatedPublicKey !== undefined && input.generatedPublicKey !== operator.walletAddress) throw new Error('Operational wallet mismatch');
+  const txn = await buildValidatorRegistrationTXN({ ...input, ...(operator && { generatedPublicKey: operator.walletAddress }) }, {
+    ...options, grpcConfig: { transactionContext: { chainId: owner.chainId }, ...options.grpcConfig },
+    proofLayout: { ...options.proofLayout, owner: owner.variant, ...(operator && { operator: operator.variant }) }
+  });
+  checkSigner(owner, txn.base?.publicKey?.walletAddress);
+  await signAndFinalize(txn, owner);
+  return operator ? attachGeneratedSignature(txn, owner, operator) : txn;
 }
 
-/**
- * Submit a signed {@link ValidatorRegistration} to
- * `ValidatorService.ValidatorRegistration`.
- *
- * @param txn - Signed registration (from {@link createValidatorRegistrationTXN})
- * @param grpcConfig - Endpoint configuration (defaults to SDK defaults);
- *   `grpcConfig.transport` overrides the transport entirely
- * @returns Hex transaction hash (`base.hash`)
- *
- * @throws Error when the transaction is missing `base.signature`,
- *   `base.hash`, or `generated_signature`, or the network rejects it
- *   (as a `KalvoraRpcError`).
- *
- * @example
- * ```typescript
- * const hash = await sendValidatorRegistrationTXN(signed, { host: 'validator.example.com' });
- * ```
- */
-export async function sendValidatorRegistrationTXN(
-  txn: ValidatorRegistration,
-  grpcConfig: GRPCConfig = {}
-): Promise<string> {
-  const base = requireSigned(txn);
-  if (!txn.generatedSignature || txn.generatedSignature.length === 0) {
-    throw new Error('ValidatorRegistration is missing generated_signature (see attachGeneratedSignature)');
+export async function sendValidatorRegistrationTXN(txn: ValidatorRegistration, grpcConfig: GRPCConfig = {}): Promise<string> {
+  const signed = clone(ValidatorRegistrationSchema, txn);
+  const base = requireSigned(signed);
+  if (signed.register ? !signed.generatedPublicKey || !signed.generatedSignature.length : signed.generatedPublicKey || signed.generatedSignature.length) {
+    throw new Error('Invalid generated key or signature for the registration operation');
   }
-  const client = createClient(ValidatorService, grpcConfig);
-  await client.validatorRegistration(txn);
+  if (grpcConfig.transactionContext) assertTransactionContext(signed, grpcConfig.transactionContext);
+  if (grpcConfig.transactionContext || base.publicKey?.walletAddress || signed.validator?.publicKey?.walletAddress || signed.generatedPublicKey?.walletAddress) {
+    checkAssignment(signed);
+    if (signed.register && signed.generatedSignature.length !== 666 && signed.generatedSignature.length !== 1280) throw new Error('Expected a padded operational signature');
+    assertRegisteredSubmission(signed);
+  }
+  await createClient(ValidatorService, grpcConfig).validatorRegistration(signed);
   return bytesToHex(base.hash);
 }
 
-// ============================================================================
-// VALIDATOR HEARTBEAT
-// ============================================================================
-
-/**
- * Build an **unsigned** {@link ValidatorHeartbeat}.
- *
- * Unless both `options.nonce` and `options.feeAmountParts` are set, this
- * function queries the network for the operator's next nonce and the base fee.
- *
- * @param input - Heartbeat parameters (see {@link ValidatorHeartbeatInput})
- * @param options - Shared standard transaction options
- * @returns The unsigned protobuf `ValidatorHeartbeat`
- *
- * @throws Error when `publicKey` is missing/invalid, `online` is not a
- *   boolean, `version` is not a uint32, or any shared option is invalid.
- *
- * @example
- * ```typescript
- * const txn = await buildValidatorHeartbeatTXN(
- *   { publicKey: 'A_<operator public key>', online: true, version: 100 },
- *   { nonce: 4, feeAmountParts: '1000' }
- * );
- * ```
- */
 export async function buildValidatorHeartbeatTXN(
-  input: ValidatorHeartbeatInput,
-  options: ValidatorOpsTXNOptions = {}
+  input: ValidatorHeartbeatInput, options: ValidatorOpsTXNOptions = {}
 ): Promise<ValidatorHeartbeat> {
   requireObject(input, 'buildValidatorHeartbeatTXN: input object is required');
-  const operatorPublicKey = requirePublicKeyId(input.publicKey, 'publicKey');
+  const operator = requirePublicKeyId(input.publicKey, 'publicKey');
+  const owner = requirePublicKeyId(input.ownerAddress, 'ownerAddress');
+  if (owner === operator) throw new Error('Owner and operator must use distinct wallets');
   const online = requireBoolean(input.online, 'online');
   const version = parseUint32(input.version, 'version');
-
+  if (new TextEncoder().encode(options.memo).length > 64) throw new Error('Heartbeat memo exceeds 64 bytes');
+  if (options.interfaceFee !== undefined || options.interfaceAddress !== undefined || options.interfaceFeeId !== undefined || options.proofLayout?.sponsor) {
+    throw new Error('Heartbeat cannot carry a sponsor or interface fee');
+  }
+  const nonce = options.nonce ?? (await getAddressAndNonce(owner, options.grpcConfig)).nonce;
   return buildStandardTransaction({
-    operation: 'buildValidatorHeartbeatTXN',
-    schema: ValidatorHeartbeatSchema,
-    publicKeyId: operatorPublicKey,
-    contractId: undefined,
-    fields: { online, version },
-    options
+    operation: 'buildValidatorHeartbeatTXN', schema: ValidatorHeartbeatSchema, publicKeyId: operator,
+    fields: { online, version }, options: { ...options, nonce }
   });
 }
 
-/**
- * Build and sign a {@link ValidatorHeartbeat} with the operator's private key.
- *
- * @param input - Heartbeat parameters
- * @param privateKey - Operator's base58 private key (matching `input.publicKey`)
- * @param options - Shared standard transaction options
- * @returns The signed heartbeat, ready for {@link sendValidatorHeartbeatTXN}
- *
- * @throws Error when `privateKey` is missing, on any validation error from
- *   {@link buildValidatorHeartbeatTXN}, or when signing fails.
- *
- * @example
- * ```typescript
- * const signed = await createValidatorHeartbeatTXN(
- *   { publicKey: operator.publicKey, online: true, version: 100 },
- *   operator.privateKey
- * );
- * const hash = await sendValidatorHeartbeatTXN(signed);
- * ```
- */
-export async function createValidatorHeartbeatTXN(
-  input: ValidatorHeartbeatInput,
-  privateKey: string,
-  options: ValidatorOpsTXNOptions = {}
-): Promise<ValidatorHeartbeat> {
-  requirePrivateKey(privateKey, 'privateKey');
-  const txn = await buildValidatorHeartbeatTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+function checkHeartbeat(txn: ValidatorHeartbeat): void {
+  const base = requireSigned(txn);
+  if (base.feePayer || base.interfaceFee !== undefined || base.interfaceFeeId !== undefined || base.interfaceAddress !== undefined ||
+      new TextEncoder().encode(base.memo).length > 64 || toBinary(ValidatorHeartbeatSchema, txn).length > 4096) {
+    throw new Error('Heartbeat exceeds its signed size or memo limit, or includes prohibited fee fields');
+  }
 }
 
-/**
- * Submit a signed {@link ValidatorHeartbeat} to
- * `ValidatorService.ValidatorHeartbeat`.
- *
- * @param txn - Signed heartbeat (from {@link createValidatorHeartbeatTXN})
- * @param grpcConfig - Endpoint configuration (defaults to SDK defaults);
- *   `grpcConfig.transport` overrides the transport entirely
- * @returns Hex transaction hash (`base.hash`)
- *
- * @throws Error when the transaction is unsigned or the network rejects it.
- *
- * @example
- * ```typescript
- * const hash = await sendValidatorHeartbeatTXN(signed);
- * ```
- */
-export async function sendValidatorHeartbeatTXN(
-  txn: ValidatorHeartbeat,
-  grpcConfig: GRPCConfig = {}
-): Promise<string> {
-  const base = requireSigned(txn);
-  const client = createClient(ValidatorService, grpcConfig);
-  await client.validatorHeartbeat(txn);
-  return bytesToHex(base.hash);
+export async function createValidatorHeartbeatTXN(
+  input: ValidatorHeartbeatInput, operator: ValidatorWalletSigner, options: ValidatorOpsTXNOptions = {}
+): Promise<ValidatorHeartbeat> {
+  const txn = await buildValidatorHeartbeatTXN(input, {
+    ...options, grpcConfig: { transactionContext: { chainId: operator.chainId }, ...options.grpcConfig },
+    proofLayout: { ...options.proofLayout, owner: operator.variant }
+  });
+  checkSigner(operator, txn.base?.publicKey?.walletAddress);
+  await signAndFinalize(txn, operator);
+  checkHeartbeat(txn);
+  return txn;
+}
+
+export async function sendValidatorHeartbeatTXN(txn: ValidatorHeartbeat, grpcConfig: GRPCConfig = {}): Promise<string> {
+  const signed = clone(ValidatorHeartbeatSchema, txn);
+  checkHeartbeat(signed);
+  if (grpcConfig.transactionContext) assertTransactionContext(signed, grpcConfig.transactionContext);
+  if (grpcConfig.transactionContext || signed.base?.publicKey?.walletAddress) {
+    singleAddress(signed.base?.publicKey);
+    if (!signed.base?.nonce) throw new Error('A heartbeat requires the next positive owner nonce');
+    assertRegisteredSubmission(signed);
+  }
+  await createClient(ValidatorService, grpcConfig).validatorHeartbeat(signed);
+  return bytesToHex(requireSigned(signed).hash);
 }

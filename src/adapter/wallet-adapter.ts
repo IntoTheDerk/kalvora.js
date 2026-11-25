@@ -50,6 +50,7 @@ import {
   KALVORA_PROVIDER_FLAG,
   KALVORA_PROVIDER_METHODS
 } from './constants.js';
+import { decodeFalconPublicKey, WalletSigningAccount, type ExternalSigningAccount } from './signing-account.js';
 import {
   WalletSigner,
   DeepLinkSigner,
@@ -65,6 +66,8 @@ import {
  * Configuration options for `KalvoraWalletAdapter`.
  */
 export interface WalletAdapterConfig {
+  /** App's trusted 32-byte wire chain ID, required for Falcon accounts. */
+  chainId?: Uint8Array;
   /** Attempt auto-connect on instantiation (default: false) */
   autoConnect?: boolean;
   /** Base deep link URL for wallet actions (default: `KALVORA_DEFAULT_DEEP_LINK`) */
@@ -115,8 +118,23 @@ interface PendingConnectRequest {
   timestamp: number;
 }
 
+function firstProviderAccount(result: unknown): { publicKey: unknown; address: unknown } | undefined {
+  const response = result as { accounts?: unknown[]; addresses?: unknown[] } | undefined;
+  const accounts = Array.isArray(result) ? result : response?.accounts;
+  if (!Array.isArray(accounts) || !accounts.length) return undefined;
+  const first = accounts[0];
+  if (first && typeof first === 'object') {
+    const account = first as { publicKey?: unknown; address?: unknown; walletAddress?: unknown };
+    return { publicKey: account.publicKey, address: account.walletAddress ?? account.address };
+  }
+  return { publicKey: first, address: response?.addresses?.[0] };
+}
+
 function isValidWalletPublicKey(publicKey: unknown): publicKey is string {
   if (typeof publicKey !== 'string') return false;
+  if (!publicKey.includes('_')) {
+    try { decodeFalconPublicKey(publicKey); return true; } catch { return false; }
+  }
   const match = /^(?:r_)?([AB])_(?:(?:[abc])_)*([1-9A-HJ-NP-Za-km-z]+)$/u.exec(publicKey);
   if (!match) return false;
 
@@ -128,7 +146,12 @@ function isValidWalletPublicKey(publicKey: unknown): publicKey is string {
   }
 }
 
-function resolveWalletAddress(publicKey: string, suppliedAddress?: unknown): string {
+function resolveWalletAddress(publicKey: string, suppliedAddress: unknown, chainId?: Uint8Array): string {
+  if (!publicKey.includes('_')) {
+    if (!chainId || typeof suppliedAddress !== 'string') throw new Error('Falcon requires a selected address and trusted chain ID');
+    new WalletSigningAccount(publicKey, { walletAddress: suppliedAddress, chainId });
+    return suppliedAddress;
+  }
   const derivedAddress = generateAddressFromPublicKey(publicKey);
   if (suppliedAddress === undefined || suppliedAddress === null || suppliedAddress === '') {
     return derivedAddress;
@@ -169,11 +192,13 @@ export class KalvoraWalletAdapter {
   private _provider: KalvoraProvider | null = null;
   private _connectionMode: WalletConnectionMode | null = null;
   private _listeners: Record<string, EventHandler[]> = {};
-  private readonly _config: Required<WalletAdapterConfig>;
+  private readonly _config: Required<Omit<WalletAdapterConfig, 'chainId'>>;
+  private readonly _chainId: Uint8Array | undefined;
   private _broadcastChannel: BroadcastChannel | null = null;
   private _pendingSignResult: CorrelatedSignResult | null = null;
 
   constructor(config?: WalletAdapterConfig) {
+    this._chainId = config?.chainId?.slice();
     this._config = {
       autoConnect: config?.autoConnect ?? false,
       deepLinkUrl: config?.deepLinkUrl ?? KALVORA_DEFAULT_DEEP_LINK,
@@ -320,14 +345,14 @@ export class KalvoraWalletAdapter {
    * Connect with a known public key (view-only mode).
    * Signing will use deep-link round-trips through a compatible wallet app.
    */
-  connectManual(publicKey: string): void {
+  connectManual(publicKey: string, selectedAddress?: string): void {
     if (!isValidWalletPublicKey(publicKey)) {
       throw new Error('publicKey must be a valid Kalvora public key identifier');
     }
+    this._address = resolveWalletAddress(publicKey, selectedAddress, this._chainId);
     this._publicKey = publicKey;
-    this._address = resolveWalletAddress(publicKey);
     this._connectionMode = 'manual';
-    this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl());
+    this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl(), this._signingAccount());
     this._state = 'connected';
     this._persistConnection();
     this._emit('connect', { publicKey, address: this._address, mode: 'manual' });
@@ -389,23 +414,16 @@ export class KalvoraWalletAdapter {
 
     try {
       const result = await provider.request(KALVORA_PROVIDER_METHODS.requestAccounts, {});
-      const accounts = Array.isArray(result) ? result : (result as { accounts?: string[] })?.accounts ?? [];
-      // Parse optional addresses array (wallet app provides actual wallet address)
-      const addresses = !Array.isArray(result) ? (result as { addresses?: string[] })?.addresses ?? [] : [];
-
-      if (!accounts.length) {
-        throw new Error('No accounts returned from wallet');
-      }
-
-      const publicKey = accounts[0] as string;
-      const address = addresses[0] as string | undefined;
+      const account = firstProviderAccount(result);
+      if (!account) throw new Error('No accounts returned from wallet');
+      const { publicKey, address } = account;
       if (!isValidWalletPublicKey(publicKey)) {
         throw new Error('Wallet provider returned an invalid Kalvora public key');
       }
-      const verifiedAddress = resolveWalletAddress(publicKey, address);
+      const verifiedAddress = resolveWalletAddress(publicKey, address, this._chainId);
       this._publicKey = publicKey;
       this._address = verifiedAddress;
-      this._signer = new WalletSigner(publicKey, provider);
+      this._signer = new WalletSigner(publicKey, provider, this._signingAccount());
       this._connectionMode = 'embedded';
       this._state = 'connected';
       this._persistConnection();
@@ -578,7 +596,7 @@ export class KalvoraWalletAdapter {
     const suppliedAddress = addressParam || null;
     let address: string;
     try {
-      address = resolveWalletAddress(publicKey, suppliedAddress);
+      address = resolveWalletAddress(publicKey, suppliedAddress, this._chainId);
     } catch (err) {
       this._emit('error', err);
       return;
@@ -586,7 +604,7 @@ export class KalvoraWalletAdapter {
     this._publicKey = publicKey;
     this._address = address;
     this._connectionMode = 'deeplink';
-    this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl());
+    this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl(), this._signingAccount());
     this._state = 'connected';
     this._persistConnection();
 
@@ -608,12 +626,20 @@ export class KalvoraWalletAdapter {
 
   // ── Private: Persistence ─────────────────────────────────────────────
 
+  private _signingAccount(): ExternalSigningAccount | undefined {
+    if (this._chainId && this._address) return { walletAddress: this._address, chainId: this._chainId };
+    return undefined;
+  }
+
   private _persistConnection(): void {
     try {
       if (!this._publicKey) return;
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
         publicKey: this._publicKey,
         address: this._address,
+        walletHash: this._signer?.walletHash,
+        variant: this._signer?.variant,
+        chainId: this._signer?.chainId ? bs58.encode(this._signer.chainId) : undefined,
         mode: this._connectionMode
       }));
     } catch { /* localStorage unavailable (iOS WebView) */ }
@@ -628,7 +654,10 @@ export class KalvoraWalletAdapter {
     try {
       const stored = localStorage?.getItem(STORAGE_KEY);
       if (!stored) return;
-      const { publicKey, address, mode } = JSON.parse(stored) as { publicKey: string; address?: string; mode: WalletConnectionMode };
+      const { publicKey, address, mode, chainId } = JSON.parse(stored) as {
+        publicKey: string; address?: string; mode: WalletConnectionMode; chainId?: string;
+      };
+      if (chainId && (!this._chainId || bs58.encode(this._chainId) !== chainId)) return;
       if (!publicKey) return;
 
       // Reject malformed or non-canonical keys before restoring signer state.
@@ -639,7 +668,7 @@ export class KalvoraWalletAdapter {
 
       let verifiedAddress: string;
       try {
-        verifiedAddress = resolveWalletAddress(publicKey, address);
+        verifiedAddress = resolveWalletAddress(publicKey, address, this._chainId);
       } catch {
         localStorage.removeItem(STORAGE_KEY);
         return;
@@ -657,11 +686,11 @@ export class KalvoraWalletAdapter {
         this._provider = provider;
         this._setupProviderListeners(provider);
         this._connectionMode = 'embedded';
-        this._signer = new WalletSigner(publicKey, provider);
+        this._signer = new WalletSigner(publicKey, provider, this._signingAccount());
       } else {
         // No embedded provider — use deep-link signer
         this._connectionMode = mode === 'embedded' ? 'deeplink' : (mode ?? 'manual');
-        this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl());
+        this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl(), this._signingAccount());
       }
 
       this._state = 'connected';
@@ -697,14 +726,14 @@ export class KalvoraWalletAdapter {
 
           let verifiedAddress: string;
           try {
-            verifiedAddress = resolveWalletAddress(publicKey, address);
+            verifiedAddress = resolveWalletAddress(publicKey, address, this._chainId);
           } catch {
             return;
           }
           this._publicKey = publicKey;
           this._address = verifiedAddress;
           this._connectionMode = 'deeplink';
-          this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl());
+          this._signer = new DeepLinkSigner(publicKey, this._config.deepLinkUrl, this._getCallbackUrl(), this._signingAccount());
           this._state = 'connected';
           this._persistConnection();
 
@@ -814,33 +843,33 @@ export class KalvoraWalletAdapter {
   private _setupProviderListeners(provider: KalvoraProvider): void {
     if (typeof provider.on !== 'function') return;
 
-    provider.on('connect', (...args: unknown[]) => {
-      const info = args[0] as { publicKey?: string; address?: string | null } | undefined;
-      if (!info) return;
+    const select = (info: { publicKey?: unknown; address?: unknown }): boolean => {
+      if (this._provider !== provider) return false;
 
       // Don't emit if already connected to this exact key
-      if (this._state === 'connected' && this._publicKey === info.publicKey) return;
+      if (this._state === 'connected' && this._publicKey === info.publicKey && this._address === info.address) return true;
 
       if (isValidWalletPublicKey(info.publicKey)) {
         let verifiedAddress: string;
         try {
-          verifiedAddress = resolveWalletAddress(info.publicKey, info.address);
+          verifiedAddress = resolveWalletAddress(info.publicKey, info.address, this._chainId);
         } catch (err) {
           this._emit('error', err);
-          return;
+          return false;
         }
         this._publicKey = info.publicKey;
         this._address = verifiedAddress;
         this._connectionMode = 'embedded';
-        this._signer = new WalletSigner(info.publicKey, provider);
+        this._signer = new WalletSigner(info.publicKey, provider, this._signingAccount());
         this._state = 'connected';
         this._persistConnection();
         this._emit('connect', { publicKey: info.publicKey, address: verifiedAddress, mode: 'embedded' });
+        return true;
       }
-    });
-
-    provider.on('disconnect', () => {
-      if (this._state === 'disconnected') return;
+      return false;
+    };
+    const clear = () => {
+      if (this._provider !== provider || this._state === 'disconnected') return;
       this._publicKey = null;
       this._address = null;
       this._signer = null;
@@ -848,7 +877,18 @@ export class KalvoraWalletAdapter {
       this._state = 'disconnected';
       this._clearPersistence();
       this._emit('disconnect');
+    };
+    provider.on('connect', (value: unknown) => {
+      if (value && typeof value === 'object') {
+        const account = value as { publicKey?: unknown; address?: unknown; walletAddress?: unknown };
+        select({ publicKey: account.publicKey, address: account.walletAddress ?? account.address });
+      }
     });
+    provider.on('accountsChanged', (value: unknown) => {
+      const account = firstProviderAccount(value);
+      if (!account || !select(account)) clear();
+    });
+    provider.on('disconnect', clear);
   }
 
   private _detectProvider(): KalvoraProvider | null {

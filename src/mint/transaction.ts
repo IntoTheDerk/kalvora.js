@@ -21,7 +21,7 @@ import {
   submitStandardTransaction,
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 /**
@@ -70,7 +70,7 @@ export interface MintTXNInput {
  * Unless both `options.nonce` and `options.feeAmountParts` are set, this
  * function queries the network for the contract type, the signer's next
  * nonce, and the base fee. A recipient with no balance row picks up the
- * first-time-wallet fee during fee calculation. `safe_send` is rejected.
+ * first-time balance fee during fee calculation. Safe send requires a registered recipient.
  *
  * @param input - Mint parameters (see {@link MintTXNInput})
  * @param options - Shared standard transaction options
@@ -105,9 +105,6 @@ export async function buildMintTXN(
   const contractId = requireContractId(input.contractId, 'contractId');
   const amount = parsePartsAmount(input.amount, 'amount');
   const recipientAddress = parseAddress(input.recipientAddress, 'recipientAddress');
-  if (options.safeSend === true) {
-    throw new Error('MintTXN rejects safe_send. Leave it unset.');
-  }
 
   const offline = options.nonce !== undefined && options.feeAmountParts !== undefined;
   if (!offline) {
@@ -119,9 +116,8 @@ export async function buildMintTXN(
     const bridgeMinters = new Set(['sc_bridge_proxy_1', 'sc_zera_bridge_proxy_1']);
     const signerIsBridge = bridgeMinters.has(input.publicKey);
     const contractIsBridge = info.contract.restrictedKeys.some(key => {
-      const single = key.publicKey?.single;
-      if (!key.mint || !single) return false;
-      return bridgeMinters.has(new TextDecoder().decode(single));
+      const authority = key.publicKey?.smartContractAuth;
+      return key.mint && authority !== undefined && bridgeMinters.has(new TextDecoder().decode(authority));
     });
     if (contractIsBridge && !signerIsBridge) {
       throw new Error('This contract can only be minted by the bridge identity');
@@ -174,14 +170,14 @@ export async function buildMintTXN(
  */
 export async function createMintTXN(
   input: MintTXNInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: MintTXNOptions = {}
 ): Promise<MintTXN> {
-  if (typeof privateKey !== 'string' || privateKey.trim() === '') {
+  if (!privateKey || (typeof privateKey === 'string' && !privateKey.trim())) {
     throw new Error('privateKey is required');
   }
-  const txn = await buildMintTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+  const txn = await buildMintTXN(input, optionsForSigner(options, privateKey));
+  return signBuiltTransaction(txn, privateKey, input.publicKey, options.grpcConfig?.transactionContext);
 }
 
 /**

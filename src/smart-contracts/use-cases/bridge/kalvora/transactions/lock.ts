@@ -13,6 +13,7 @@ import { SmartContractExecuteTXN } from '../../../../../../proto/generated/txn_p
 import { getTokenInfoForSingle } from '../../../../../api/handler/token-info/service.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../../shared/utils/testing-defaults/index.js';
 import { toSmallestUnits } from '../../../../../shared/utils/unified-amount-conversion.js';
+import type { SigningKey } from '../../../../../sign/builder.js';
 import type { AmountInput } from '../../../../../types/index.js';
 import { sendSmartContractExecuteTXN } from '../../../../execute/index.js';
 import type { BridgeKalvoraOptions, BurnSolOptions } from '../types.js';
@@ -53,7 +54,7 @@ export async function lockKalvora(
   amount: AmountInput | string,
   toSolanaAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BridgeKalvoraOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!contractId) throw new Error('contractId is required');
@@ -90,7 +91,7 @@ export async function lockKalvoraAndSend(
   amount: AmountInput | string,
   toSolanaAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BridgeKalvoraOptions = {}
 ): Promise<string> {
   const txn = await lockKalvora(
@@ -127,7 +128,7 @@ export async function burnSol(
   amount: AmountInput | string,
   toSolanaAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BurnSolOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!contractId) throw new Error('contractId is required');
@@ -172,7 +173,7 @@ export async function burnSolAndSend(
   amount: AmountInput | string,
   toSolanaAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BurnSolOptions = {}
 ): Promise<string> {
   const txn = await burnSol(

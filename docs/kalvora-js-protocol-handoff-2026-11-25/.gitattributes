@@ -1,0 +1,10 @@
+# Preserve the extracted release bytes listed in SHA256SUMS on every OS.
+* text eol=crlf
+/.gitattributes text eol=lf
+/LICENSE.md text eol=lf
+/README.md text eol=lf
+/docs/native-contract-fee-consent.md text eol=lf
+/documents/howto/client_pre_governance.md text eol=lf
+/documents/howto/kalvora_js_protocol_handoff.md text eol=lf
+/kal_validator/proto/local_candidate.proto text eol=lf
+/kal_validator/proto/validator.proto text eol=lf

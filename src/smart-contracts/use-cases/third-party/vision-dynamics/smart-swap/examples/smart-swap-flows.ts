@@ -9,27 +9,30 @@ import {
   type GRPCConfig,
   type SmartContractExecuteTXN,
   type SmartSwapIndexerClient,
-  type KalvoraSigner
+  type KalvoraSigner,
+  KALVORA_NATIVE_TOKEN
 } from '../../../../../../../index.js';
 
 export async function quoteAndBuildSwap(
   indexer: SmartSwapIndexerClient,
-  signer: KalvoraSigner,
+  signer: KalvoraSigner & { walletAddress: string; chainId: Uint8Array },
   grpcConfig: GRPCConfig,
+  tokenIn: string,
+  tokenOut: string,
   reviewTransaction: (transaction: SmartContractExecuteTXN) => void | Promise<void>
 ): Promise<string> {
   const swaps = createSmartSwap(indexer);
   const quote = await swaps.getQuote({
-    tokenIn: 'LEET1337',
-    tokenOut: 'solana-SOL000000',
+    tokenIn,
+    tokenOut,
     amountIn: 10
   });
 
   const built = await swaps.swapFromStages({
     stages: quote.stages,
     minAmountOut: String(quote.netAmountOut * 0.995),
-    feeContractID: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao'
-  }, signer.publicKey);
+    feeContractID: KALVORA_NATIVE_TOKEN
+  }, signer.walletAddress);
 
   const unsigned = deserializeTransaction(built.transaction);
   if (unsigned.$typeName !== SMART_SWAP_TRANSACTION_TYPE) {
@@ -37,6 +40,6 @@ export async function quoteAndBuildSwap(
   }
   const execute = unsigned as SmartContractExecuteTXN;
   await reviewTransaction(execute);
-  const signed = await signAndFinalize(execute, signer);
+  const signed = await signAndFinalize(execute, signer, grpcConfig.transactionContext);
   return sendSmartContractExecuteTXN(signed, grpcConfig);
 }

@@ -2,23 +2,38 @@
 
 Execute and instantiate options accept `allowances`, a signed spending budget
 for each token across the entire nested execution. Omitted lists and unlisted
-tokens authorize zero caller-wallet outflow. Amounts are raw token parts,
-including caller-paid Coin contract fees; root base/gas and interface fees have
-their separate signed caps. Supply one entry per token:
+tokens authorize zero caller-wallet outflow. Sum the caller's expected transfers
+and quoted caller-paid contract fees in their respective assets. Amounts are raw
+token parts. The root fee cap covers network fees and approved gas.
 
 ```typescript
-const options = {
-  allowances: [
-    { contractId: tokenId, allowedAmount: '1000' },
-    { contractId: feeTokenId, allowedAmount: 'unlimited' }
-  ]
-};
+import { allowancesForDebits, createSmartContractExecuteTXN } from 'kalvora.js';
+
+const allowances = allowancesForDebits(
+  [{ contractId: tokenId, amountParts: '1000' }],
+  [{ contractId: feeTokenId, amountParts: '4' }]
+);
+const signed = await createSmartContractExecuteTXN(
+  'payments', 0, 'transfer', parameters, wallet.walletAddress, wallet,
+  { nonce, allowances, feeAmountParts: '25000' }
+);
 ```
 
 Only the exact lowercase string `'unlimited'` permits uncapped spending of the
 named token. The retired Boolean `unlimited` field is rejected. Maximum uint256
-amounts remain finite budgets. The same options pass through staking, DEX,
-bootstrapping, and bridge helpers.
+amounts remain finite budgets. Staking, DEX, bootstrapping, and Kalvora bridge
+helpers accept the same budgets. Pass `gasFeeInUsd` for a gas allowance that the
+SDK converts using the fee instrument's rate. For an offline call, set the full
+network and gas cap directly in `feeAmountParts`. The registered signing
+helpers use the wallet's chain and Falcon variant or selected policy witnesses
+when building and pricing the transaction.
+
+When the contract spends its **own** wallet balance on a fee-bearing asset,
+its Wasm wrapper must call the applicable `*_with_fee_limit` import and pass
+the expected fee asset and maximum raw fee. A sweep's cap covers all attempted
+children. The caller's `allowances` authorize spending from the caller wallet.
+If the node reports `SMART_CONTRACT_OUTPUT_TOO_LARGE` (45), inspect the
+processing receipt's `gas` for charged compute. [Native fee consent](../../docs/kalvora-js-protocol-handoff-2026-11-25/docs/native-contract-fee-consent.md)
 
 Helpers for deploying, instantiating, and executing Kalvora smart contracts.
 
@@ -136,7 +151,7 @@ const unsigned = await buildSmartContractInstantiateTXN({
 });
 ```
 
-Manual nonce and fee values are not validated by the SDK and can cause network rejection if incorrect.
+The node checks the next nonce and fee sufficiency at acceptance.
 
 ## Examples
 

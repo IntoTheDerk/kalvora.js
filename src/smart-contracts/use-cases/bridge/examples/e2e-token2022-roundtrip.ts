@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * End-to-End Token-2022 Bridge Roundtrip (Solana Token-2022 ↔ Kalvora)
  *
  * Demonstrates a complete Token-2022 bridge lifecycle:

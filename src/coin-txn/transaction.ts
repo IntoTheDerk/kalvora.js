@@ -18,7 +18,8 @@
  * ```
  */
 
-import { protoInt64, create, toBinary } from '@bufbuild/protobuf';
+import { protoInt64, create } from '@bufbuild/protobuf';
+import bs58 from 'bs58';
 
 import { TimestampSchema } from '../../proto/generated/google/protobuf/timestamp_pb.js';
 import type { Timestamp } from '../../proto/generated/google/protobuf/timestamp_pb.js';
@@ -27,8 +28,7 @@ import {
   InputTransfersSchema,
   OutputTransfersSchema,
   BaseTXNSchema,
-  TransferAuthenticationSchema,
-  PublicKeySchema
+  TransferAuthenticationSchema
 } from '../../proto/generated/txn_pb.js';
 import type {
   CoinTXN,
@@ -39,25 +39,25 @@ import type {
   PublicKey
 } from '../../proto/generated/txn_pb.js';
 import { getNonces } from '../api/handler/nonce/service.js';
-import { getPublicKeyBytes, generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
-import { createTransactionHash } from '../shared/crypto/signature-utils.js';
+import { decodeRecipientAddress, generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
 import { UniversalFeeCalculator, type BaseFeeCalculationDetails, type FeeConfig, type FeeConfigHelper } from '../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
-import { validateExactAmountBalance, Decimal } from '../shared/utils/amount-utils.js';
-import { sanitizeProtobufObject } from '../shared/utils/protobuf-utils.js';
+import { signerPublicKey } from '../shared/tx/base.js';
+import { Decimal } from '../shared/utils/amount-utils.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { getTokenInfo, type TokenInfo, normalizeContractId } from '../shared/utils/token-info.js';
 import { toSmallestUnits } from '../shared/utils/unified-amount-conversion.js';
 import { isValidContractId } from '../shared/utils/validation.js';
-import { transactionContextFields } from '../sign/context.js';
-import { signCoinTXNWithKeys } from '../sign/finalize.js';
+import { transactionContextFields, type TransactionContext } from '../sign/context.js';
+import { signCoinTXN, signCoinTXNWithKeys } from '../sign/finalize.js';
 import type {
   AmountInput,
   CoinTXNInput,
   CoinTXNOutput,
   GRPCConfig
 } from '../types/index.js';
+import { derivePolicyAddress } from '../wallet-registration/policy.js';
 
 // ============================================================================
 // TYPES
@@ -74,6 +74,8 @@ export interface CoinTXNBuildInput {
   amount?: AmountInput;
   /** Fee percentage this input pays (must total 100 across all inputs) */
   feePercent?: string;
+  /** Independent share of contract fees, in percent. Defaults to feePercent. */
+  contractFeePercent?: string;
   /** For allowance transactions — the address granting the allowance */
   allowanceAddress?: string;
   /** Manual nonce override (skips network fetch when provided) */
@@ -81,6 +83,9 @@ export interface CoinTXNBuildInput {
 }
 
 export interface CoinTXNBuildOptions {
+  safeSend?: boolean;
+  /** Cached token metadata for an offline build with explicit nonces and fee caps. */
+  tokenInfoMap?: Map<string, TokenInfo>;
   /**
    * Called with the network base fee schedule used during build.
    * Existing callers can ignore this; the returned CoinTXN is unchanged.
@@ -108,34 +113,27 @@ function validateTransactionRequirements(
   }
 }
 
-function validateTransactionBalance(
-  inputs: CoinTXNBuildInput[],
-  outputs: { to: string; amount: AmountInput; memo?: string }[],
-  contractId: string,
-  tokenInfoMap: Map<string, TokenInfo>
-): void {
-  const mainTokenInfo = tokenInfoMap.get(contractId);
-  const inputAmounts = inputs.map(i => {
-    if (!i.amount) {
-      throw new Error(`Input at index ${inputs.indexOf(i)} must have a defined amount`);
-    }
-    return toSmallestUnits(i.amount, contractId, mainTokenInfo?.denomination
-      ? { denomination: mainTokenInfo.denomination }
-      : {}
-    );
-  });
-  const outputAmounts = outputs.map(o => toSmallestUnits(o.amount, contractId, mainTokenInfo?.denomination
-    ? { denomination: mainTokenInfo.denomination }
-    : {}
-  ));
-  validateExactAmountBalance(inputAmounts, outputAmounts);
+function totalParts(transfers: readonly { amount: string }[]): bigint {
+  let total = 0n;
+  for (const { amount } of transfers) {
+    if (!/^\d+$/u.test(amount)) throw new Error('Transfer amounts must be unsigned parts');
+    total += BigInt(amount);
+    if (total >= 1n << 256n) throw new Error('Total transfer amount must fit in uint256');
+  }
+  return total;
 }
 
 function validateFeePercentages(inputTransfers: InputTransfers[]): void {
-  const totalFeePercent = inputTransfers.reduce((sum, t) => new Decimal(sum).add(t.feePercent), new Decimal(0));
-  if (!totalFeePercent.equals(100000000)) {
-    throw new Error(`Fee percentages must sum to exactly 100% (100,000,000). Current sum: ${totalFeePercent.toString()}`);
+  for (const field of ['feePercent', 'contractFeePercent'] as const) {
+    const total = inputTransfers.reduce((sum, input) => sum + (input[field] ?? 0), 0);
+    if (total !== 100000000) throw new Error(`Fee percentages must sum to exactly 100% (100,000,000). Current sum: ${total}`);
   }
+}
+
+function scaledShare(value: string): number {
+  const scaled = new Decimal(value).mul(1000000);
+  if (!scaled.isInteger() || scaled.isNegative() || scaled.gt(100000000)) throw new Error('Invalid fee percentage');
+  return scaled.toNumber();
 }
 
 async function processUnsignedInputs(
@@ -181,11 +179,17 @@ async function processUnsignedInputs(
     addresses.push(address);
   }
 
+  if (isAllowance && (!inputs[0]?.publicKey || inputs[0].allowanceAddress ||
+      inputs.slice(1).some(input => !input.allowanceAddress || input.publicKey))) {
+    throw new Error('Allowance Coin requires a signing spender first, followed by allowance source addresses');
+  }
+
   let nonceDecimals: Decimal[];
   if (allInputsHaveNonces) {
     nonceDecimals = inputs.map(input => new Decimal(String(input.nonce)));
   } else {
     nonceDecimals = await getNonces(addresses, grpcConfig);
+    nonceDecimals = nonceDecimals.map((nonce, i) => inputs[i]?.nonce === undefined ? nonce : new Decimal(String(inputs[i]?.nonce)));
   }
 
   let allowanceNonceDecimals: Decimal[] = [];
@@ -203,7 +207,7 @@ async function processUnsignedInputs(
     if (!input) throw new Error(`Input at index ${i} is undefined`);
 
     if (input.publicKey) {
-      const publicKeyObj = create(PublicKeySchema, { single: new Uint8Array(getPublicKeyBytes(input.publicKey)) });
+      const publicKeyObj = signerPublicKey(input.publicKey);
       publicKeys.push(publicKeyObj);
     } else if (!input.publicKey && !isAllowance) {
       throw new Error(`Input ${i} is missing publicKey`);
@@ -213,10 +217,10 @@ async function processUnsignedInputs(
 
     const inputTokenInfo = tokenInfoMap.get(contractID);
 
-    if (!input.amount && input.allowanceAddress) {
+    if (input.amount === undefined && input.allowanceAddress) {
       throw new Error(`Allowance input at index ${i} must specify an amount`);
     }
-    if (!input.amount) {
+    if (input.amount === undefined) {
       throw new Error(`Input at index ${i} must specify an amount`);
     }
 
@@ -225,23 +229,26 @@ async function processUnsignedInputs(
       : {}
     );
     const feePercent = input.feePercent !== undefined ? input.feePercent : '100';
-    const scaledFeePercent = new Decimal(feePercent).mul(1000000).toFixed(0);
 
     inputTransfers.push(create(InputTransfersSchema, {
-      index: protoInt64.parse(i),
+      index: protoInt64.parse(inputTransfers.length),
       amount: finalAmount,
-      feePercent: parseInt(scaledFeePercent, 10)
+      feePercent: scaledShare(feePercent),
+      contractFeePercent: scaledShare(input.contractFeePercent ?? feePercent)
     }));
   }
 
   const nonces = finalNonceDecimals.map(nonce => protoInt64.uParse(nonce.toString()));
+  if (publicKeys.some(key => key.walletAddress) && nonceDecimals.some(nonce => !nonce.isInteger() || nonce.lte(0))) {
+    throw new Error('Registered Coin authorizations and allowance sources require positive next nonces');
+  }
 
   const allowanceNonces = allowanceNonceDecimals.length > 0
     ? allowanceNonceDecimals.map(nonce => protoInt64.uParse(nonce.toString()))
     : null;
 
   const finalAllowanceAddresses = allowanceAddresses.length > 0
-    ? allowanceAddresses.map(addr => sanitizeAndDecodeAddress(addr))
+    ? allowanceAddresses.map(addr => publicKeys[0]?.walletAddress ? decodeRecipientAddress(addr) : sanitizeAndDecodeAddress(addr))
     : null;
 
   return { publicKeys, inputTransfers, nonces, allowanceAddresses: finalAllowanceAddresses, allowanceNonces };
@@ -258,12 +265,9 @@ function processOutputs(
       ? { denomination: outputTokenInfo.denomination }
       : {}
     );
-    const data: { walletAddress: Uint8Array; amount?: string; memo?: string } = {
-      walletAddress: new Uint8Array(sanitizeAndDecodeAddress(output.to))
+    const data: { walletAddress: Uint8Array; amount: string; memo?: string } = {
+      walletAddress: decodeRecipientAddress(output.to, true), amount: finalAmount
     };
-    if (finalAmount && finalAmount !== '0') {
-      data.amount = finalAmount;
-    }
     if (output.memo && output.memo.trim() !== '') {
       data.memo = output.memo;
     }
@@ -271,7 +275,7 @@ function processOutputs(
   });
 }
 
-function createBaseTransaction(baseFeeId: string = KALVORA_NATIVE_TOKEN, baseFee: AmountInput, baseMemo: string): BaseTXN {
+function createBaseTransaction(baseFeeId: string = KALVORA_NATIVE_TOKEN, baseFee: AmountInput, baseMemo: string, context?: TransactionContext): BaseTXN {
   if (!baseFee || baseFee === '0') {
     throw new Error('Base fee must be provided and cannot be 0');
   }
@@ -290,7 +294,7 @@ function createBaseTransaction(baseFeeId: string = KALVORA_NATIVE_TOKEN, baseFee
   if (baseMemo && baseMemo.trim() !== '') {
     baseData.memo = baseMemo;
   }
-  return create(BaseTXNSchema, { ...baseData, ...transactionContextFields('kal_txn.CoinTXN') });
+  return create(BaseTXNSchema, { ...baseData, ...transactionContextFields('kal_txn.CoinTXN', context) });
 }
 
 function createTransferAuth(
@@ -364,7 +368,7 @@ export async function buildCoinTXN(
 
   validateTransactionRequirements(inputs, outputs, normalizedContractId);
 
-  const tokenInfoMap = await getTokenInfo(
+  const tokenInfoMap = buildOptions.tokenInfoMap ?? await getTokenInfo(
     normalizedContractId,
     [normalizedFeeConfig.contractFeeId, normalizedFeeConfig.interfaceFeeId, normalizedFeeConfig.baseFeeId].filter((id): id is string => Boolean(id)),
     grpcConfig
@@ -376,18 +380,18 @@ export async function buildCoinTXN(
     inputsCopy, normalizedContractId, tokenInfoMap, grpcConfig
   );
 
-  // Filter inputs for validation (remove allowance authorizers)
-  const validationInputs = allowanceAddresses && allowanceAddresses.length > 0
-    ? inputsCopy.slice(1)
-    : inputsCopy;
-
   const outputTransfers = processOutputs(outputs, tokenInfoMap, normalizedContractId);
-
-  validateTransactionBalance(validationInputs, outputs, normalizedContractId, tokenInfoMap);
+  if (totalParts(inputTransfers) !== totalParts(outputTransfers)) throw new Error('Amount mismatch in coin transaction');
   validateFeePercentages(inputTransfers);
 
   // Build unsigned transaction
-  const initialTxnBase = createBaseTransaction(normalizedFeeConfig.baseFeeId, '1', baseMemo);
+  const initialTxnBase = createBaseTransaction(normalizedFeeConfig.baseFeeId, '1', baseMemo, grpcConfig.transactionContext);
+  const firstIdentity = inputs[0]?.publicKey;
+  if (publicKeys[0]?.walletAddress && firstIdentity) initialTxnBase.publicKey = signerPublicKey(firstIdentity);
+  if (buildOptions.safeSend !== undefined) {
+    if (typeof buildOptions.safeSend !== 'boolean') throw new Error('safeSend must be a boolean');
+    initialTxnBase.safeSend = buildOptions.safeSend;
+  }
   const initialCoinTxnData: Record<string, unknown> = {
     base: initialTxnBase,
     contractId: normalizedContractId,
@@ -408,12 +412,6 @@ export async function buildCoinTXN(
     ...(buildOptions.onBaseFeeCalculated ? { onBaseFeeCalculated: buildOptions.onBaseFeeCalculated } : {})
   };
   coinTxn = await UniversalFeeCalculator.calculateFee(feeConfigHelper);
-
-  // Sanitize
-  const sanitizedData = sanitizeProtobufObject(coinTxn, { removeEmptyFields: true });
-  if (!sanitizedData) throw new Error('Failed to sanitize transaction object');
-   
-  coinTxn = create(CoinTXNSchema, sanitizedData);
 
   // Return unsigned — no signatures, no hash
   return coinTxn;
@@ -442,39 +440,25 @@ export async function createCoinTXN(
   contractId: string,
   feeConfig: FeeConfig = { baseFeeId: KALVORA_NATIVE_TOKEN },
   baseMemo: string = '',
-  grpcConfig: GRPCConfig = PROTONET_GRPC_CONFIG
+  grpcConfig: GRPCConfig = PROTONET_GRPC_CONFIG,
+  buildOptions: CoinTXNBuildOptions = {}
 ): Promise<CoinTXN> {
-  // Extract signing keys before building (buildCoinTXN doesn't need private keys)
-  // Filter out allowance-based inputs for signing (they don't sign)
-  const signerKeys = inputs
-    .filter(input => !input.allowanceAddress)
-    .map(input => ({
-      publicKey: input.publicKey as string,
-      privateKey: input.privateKey as string
-    }));
-
-  // Convert CoinTXNInput[] to CoinTXNBuildInput[] (strips private keys)
-  const buildInputs: CoinTXNBuildInput[] = inputs.map(input => {
-    const { privateKey: _privateKey, ...rest } = input;
-    return rest;
+  const buildInputs = inputs.map(({ signer, privateKey: _privateKey, ...input }) => {
+    if (!signer) return input;
+    const address = 'policy' in signer ? bs58.encode(derivePolicyAddress(signer.policy, signer.walletHash)) : signer.walletAddress;
+    if (!address || input.allowanceAddress || (input.publicKey && input.publicKey !== address)) throw new Error('Coin input requires its selected signer address');
+    return { ...input, publicKey: address };
   });
-
-  // Build unsigned transaction (validation, nonces, fees all handled)
-  let coinTxn = await buildCoinTXN(buildInputs, outputs, contractId, feeConfig, baseMemo, grpcConfig);
-
-  // Sign with all keys + compute hash (skip if allowance-only with no signing keys)
-  if (signerKeys.length > 0) {
-    coinTxn = signCoinTXNWithKeys(coinTxn, signerKeys);
-  } else {
-    // Allowance-only transactions: just add hash (no signatures)
-    const bytes = toBinary(CoinTXNSchema, coinTxn);
-    const baseData = coinTxn.base;
-    if (baseData) {
-      baseData.hash = createTransactionHash(bytes);
-    }
+  const coinTxn = await buildCoinTXN(buildInputs, outputs, contractId, feeConfig, baseMemo, grpcConfig, buildOptions);
+  const authorizers = inputs.filter(input => !input.allowanceAddress);
+  if (authorizers.some(input => input.signer)) {
+    return signCoinTXN(coinTxn, authorizers.map(input => {
+      if (!input.signer) throw new Error('Supply a registered signer for each Coin authorization');
+      return input.signer;
+    }), grpcConfig.transactionContext);
   }
-
-  return coinTxn;
+  const signerKeys = authorizers.map(input => ({ publicKey: input.publicKey ?? '', privateKey: input.privateKey ?? '' }));
+  return signCoinTXNWithKeys(coinTxn, signerKeys, grpcConfig.transactionContext);
 }
 
 // ============================================================================

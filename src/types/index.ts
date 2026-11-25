@@ -264,6 +264,8 @@ export interface MultipleWalletOptions extends WalletOptions {
  * CoinTXN input object
  */
 export interface CoinTXNInput {
+  /** Registered single-key wallet or policy witnesses for this authorization slot. */
+  signer?: import('../sign/finalize.js').TransactionSigner;
   /** Private key in base58 format */
   privateKey?: string; // should be specifed if not an allowance
   /** Public key identifier */
@@ -272,6 +274,8 @@ export interface CoinTXNInput {
   amount?: AmountInput; // should be specifed if not an allowance
   /** Fee percentage (default: '100') */
   feePercent?: string;
+  /** Independent percentage of contract fees paid by this input. */
+  contractFeePercent?: string;
   /** Key type (optional, auto-detected if not provided) */
   keyType?: KeyType;
   /** Allowance address (for allowance transactions) */
@@ -300,6 +304,10 @@ export interface CoinTXNOutput {
  * gRPC configuration options
  */
 export interface GRPCConfig {
+  /** Expected registered validator operator for verifying signed API responses. */
+  trustedOperatorAddress?: string;
+  /** Trusted transaction identity for builders using this network configuration. */
+  transactionContext?: import('../sign/context.js').TransactionContext;
   /** Full endpoint URL (overrides host/port if provided) */
   endpoint?: string;
   /** Host address (default: 'kal-proto.visiondynamics.ch') */
@@ -310,7 +318,7 @@ export interface GRPCConfig {
   protocol?: 'http' | 'https';
   /** Additional Node.js options for the transport */
   nodeOptions?: Record<string, unknown>;
-  /** Connection timeout in milliseconds (default: 30000) */
+  /** Default unary RPC deadline in milliseconds (30,000). A per-call timeoutMs overrides it. */
   timeout?: number;
   /** Maximum retry attempts (default: 3) */
   maxRetries?: number;
