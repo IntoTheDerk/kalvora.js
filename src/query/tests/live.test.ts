@@ -2,6 +2,7 @@
  * Read-only smoke tests. Set KALVORA_LIVE_ENDPOINT to a finalized API gateway.
  * To verify a deployment, also supply its independently trusted
  * KALVORA_LIVE_NETWORK_NAME, KALVORA_LIVE_GENESIS_HASH and KALVORA_LIVE_OPERATOR_ADDRESS.
+ * KALVORA_LIVE_VALIDATOR_VERSION optionally checks the reported block header version (200032 for v35).
  */
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 
@@ -20,6 +21,7 @@ const ENDPOINT = process.env.KALVORA_LIVE_ENDPOINT ?? '';
 const NETWORK = process.env.KALVORA_LIVE_NETWORK_NAME ?? '';
 const GENESIS = process.env.KALVORA_LIVE_GENESIS_HASH ?? '';
 const OPERATOR = process.env.KALVORA_LIVE_OPERATOR_ADDRESS ?? '';
+const EXPECTED_VERSION = process.env.KALVORA_LIVE_VALIDATOR_VERSION;
 const PINNED = Boolean(NETWORK || GENESIS || OPERATOR);
 
 describe.skipIf(!ENDPOINT)('live read-only query', () => {
@@ -68,6 +70,7 @@ describe.skipIf(!ENDPOINT)('live read-only query', () => {
   it('getBlock({ height: 0 }) returns genesis and summarizeBlock decodes it', async () => {
     const block = await query.getBlock({ height: 0 });
     expect(block.blockHeader?.blockHeight).toBe(0n);
+    if (EXPECTED_VERSION !== undefined) expect(block.blockHeader?.version).toBe(BigInt(EXPECTED_VERSION));
     const summary = summarizeBlock(block);
     expect(summary.height).toBe(0n);
     expect(summary.hash).toMatch(/^[0-9a-f]{64}$/u);

@@ -20,6 +20,7 @@ import {
 import { CONTRACT_FEE_TYPE, PublicKeySchema, TRANSACTION_TYPE, TXN_STATUS } from '../../../proto/generated/txn_pb.js';
 import {
   BlockSchema,
+  POST_GOVERNANCE_OUTCOME,
   PRE_GOVERNANCE_OUTCOME,
   PROPOSAL_PHASE,
   type Block
@@ -848,6 +849,32 @@ describe('block queries', () => {
       expect(Date.now() - started).toBeLessThan(5000);
     });
 
+    it('cancels a pending block RPC when the caller aborts', async () => {
+      const { query } = chain(10);
+      const caller = new AbortController();
+      const getBlock = vi.spyOn(query, 'getBlock').mockImplementation(() => new Promise<Block>(() => {}));
+      const pending = query.waitForTransaction(TX, { fromHeight: 1, signal: caller.signal });
+      const rpcSignal = getBlock.mock.calls[0]?.[1];
+      caller.abort();
+      await expect(pending).rejects.toThrow('Aborted');
+      expect(rpcSignal?.aborted).toBe(true);
+    });
+
+    it('times out while a finality source is still verifying a matching block', async () => {
+      const { query } = chain(1, h => blockWithResult(h, 0x77, TXN_STATUS.OK));
+      const verify = vi.fn(() => new Promise<boolean>(() => {}));
+      await expect(query.waitForTransaction(TX, { fromHeight: 1, timeoutMs: 100, verifyFinalizedBlock: verify }))
+        .rejects.toThrow('Timed out after 100 ms');
+      expect(verify).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects a mismatched block height before accepting its finality evidence', async () => {
+      const { query } = chain(5, () => blockWithResult(5n, 0x77, TXN_STATUS.OK));
+      const verify = vi.fn(() => true);
+      await expect(query.waitForTransaction(TX, { fromHeight: 1, verifyFinalizedBlock: verify })).rejects.toThrow(/unexpected height/u);
+      expect(verify).not.toHaveBeenCalled();
+    });
+
     it('waitForTransaction aborts while scanning existing blocks', async () => {
       const controller = new AbortController();
       const query = client({
@@ -960,6 +987,25 @@ describe('getProposalLedger', () => {
   it('returns no statuses when the validator predates proposal_statuses', async () => {
     const query = client({ proposalLedger: () => ({ proposalKeys: ['P1'], proposalValues: ['p'] }) });
     expect((await query.getProposalLedger()).statuses).toEqual([]);
+  });
+
+  it('preserves a frozen public option zero, pending execution and the POST review window', async () => {
+    const query = client({ proposalLedger: () => ({ proposalStatuses: [
+      { promotionPending: true, proposal: {
+        phase: PROPOSAL_PHASE.POST_GOVERNANCE, postGovernanceWinningOption: 0,
+        postGovernanceOutcome: POST_GOVERNANCE_OUTCOME.POST_GOVERNANCE_COMPLETION_PENDING,
+        postGovernanceStartDate: { seconds: 100n }, postGovernanceEndDate: { seconds: 200n },
+        postGovernanceFee: '25'
+      } },
+      {}
+    ] }) });
+    const [post, bare] = (await query.getProposalLedger()).statuses;
+    expect(post).toMatchObject({
+      postGovernanceWinningOption: 0, promotionPending: true,
+      postGovernanceOutcome: POST_GOVERNANCE_OUTCOME.POST_GOVERNANCE_COMPLETION_PENDING,
+      postGovernanceStartDate: new Date(100000), postGovernanceEndDate: new Date(200000), postGovernanceFee: '25'
+    });
+    expect(bare?.postGovernanceWinningOption).toBeUndefined();
   });
 
   it('defaults to ALL_PROPOSALS with an empty key', async () => {

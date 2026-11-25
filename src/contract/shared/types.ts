@@ -31,13 +31,13 @@ export interface CreateContractOptions {
   /** Contract type (TOKEN, NFT, SBT) */
   type: CONTRACT_TYPE;
   /**
-   * Contract ID. Required unless `vanityNonce` is set, in which case the SDK
-   * derives the ID and rejects a mismatch.
+   * Optional expected ID for a fresh-genesis creator. The SDK derives the ID
+   * and rejects a mismatch.
    */
   contractId?: string;
   /**
    * Vanity nonce used to derive `contractId`. This is not `BaseTXN.nonce`.
-   * When set, the derived ID is written onto the transaction.
+   * Fresh-genesis creators use zero when omitted. Any supplied contractId must match the derivation.
    */
   vanityNonce?: bigint | number;
   /** Public key identifier of the contract creator */

@@ -38,6 +38,9 @@ function baseInput(overrides: Partial<DelegatedInput> = {}): DelegatedInput {
 }
 
 describe('buildDelegatedTXN', () => {
+  it('rejects self-delegation when the signer uses its registered wallet address', async () => {
+    await expect(buildDelegatedTXN(baseInput({ publicKey: bob.address }), OPTIONS)).rejects.toThrow(/self|signer/iu);
+  });
   it('maps delegates, contracts, priorities and fees', async () => {
     const txn = await buildDelegatedTXN(baseInput(), OPTIONS);
 

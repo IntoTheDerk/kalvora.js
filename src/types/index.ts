@@ -318,7 +318,7 @@ export interface GRPCConfig {
   protocol?: 'http' | 'https';
   /** Additional Node.js options for the transport */
   nodeOptions?: Record<string, unknown>;
-  /** Connection timeout in milliseconds (default: 30000) */
+  /** Default unary RPC deadline in milliseconds (30,000). A per-call timeoutMs overrides it. */
   timeout?: number;
   /** Maximum retry attempts (default: 3) */
   maxRetries?: number;

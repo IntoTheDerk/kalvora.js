@@ -184,9 +184,7 @@ if (typeof globalThis.ReadableStream === 'undefined') {
   (globalThis as any).ReadableStream = MinimalReadableStream;
 }
 
-export function createGrpcWebFetch(): typeof globalThis.fetch {
-  const nativeFetch = globalThis.fetch;
-
+export function createGrpcWebFetch(nativeFetch = globalThis.fetch): typeof globalThis.fetch {
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     try {
       const response = await nativeFetch(input, init);

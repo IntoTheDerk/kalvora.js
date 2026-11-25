@@ -10,6 +10,7 @@ import type {
   KeyType,
   HashType
 } from '../../types/index.js';
+import { BURN_ADDRESS } from '../crypto/address-utils.js';
 import { isWalletAddress } from '../crypto/falcon-address.js';
 import { isKalvoraMintId, KALVORA_MINT_ID_ERROR } from '../network/constants.js';
 import { Decimal } from '../utils/amount-utils.js';
@@ -760,7 +761,7 @@ export const isValidContractId = (contractId: string): boolean => {
  * isValidAddress('invalid'); // false
  * ```
  */
-export const isValidAddress = (address: string): boolean => address === 'W5jE3KNH' || isWalletAddress(address);
+export const isValidAddress = (address: string): boolean => address === BURN_ADDRESS || isWalletAddress(address);
 
 export const validateAmount = (amount: unknown, options?: ValidationOptions & {
   minAmount?: AmountInput;

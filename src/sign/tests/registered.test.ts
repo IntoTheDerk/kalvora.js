@@ -6,10 +6,11 @@ import bs58 from 'bs58';
 import { describe, expect, it, vi } from 'vitest';
 
 import { APIService, TokenFeeInfoSchema } from '../../../proto/generated/kal_api_pb.js';
-import { CoinTXNSchema, GovernanceProposalSchema, TXNService, WalletPolicySchema, WalletRegistrationSchema } from '../../../proto/generated/txn_pb.js';
+import { CoinTXNSchema, GovernanceProposalSchema, InstrumentContractSchema, MintTXNSchema, TXNService, WalletPolicySchema, WalletRegistrationSchema } from '../../../proto/generated/txn_pb.js';
 import { buildCoinTXN } from '../../coin-txn/transaction.js';
 import { submitTransaction } from '../../grpc/transaction/transaction-client.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
+import { fromSmallestUnits, toSmallestUnits } from '../../shared/utils/unified-amount-conversion.js';
 import { FalconWallet, verifyFalconSignature } from '../../wallet-creation/falcon.js';
 import { buildWalletRegistration, derivePolicyAddress, encodePolicyDescriptor } from '../../wallet-registration/index.js';
 import { countersignTransaction, finalizeTransactionHash, getSponsorSigningBytes, getTransactionSigningBytes, signAndFinalize, signCoinTXN } from '../finalize.js';
@@ -27,6 +28,45 @@ const vectors = JSON.parse(readFileSync(new URL('../../../docs/kalvora-js-protoc
 const network = { networkName: 'kal_main' as const, genesisHash: '47'.repeat(32) };
 
 describe('registered transaction proofs', () => {
+  it('builds Coin with exact parts and catches a one-part imbalance above 50 significant digits', async () => {
+    const token = create(TokenFeeInfoSchema, { contractId: KALVORA_NATIVE_TOKEN, denomination: '7' });
+    const address = bs58.encode(new Uint8Array(32).fill(6));
+    const amount = 10n ** 60n + 1n;
+    const build = (output: string, to = address) => buildCoinTXN([{ publicKey: address, amount, nonce: 1n }],
+      [{ to, amount: output }], token.contractId, { baseFeeParts: '1' }, '',
+      { transactionContext: { chainId: new Uint8Array(32) } }, { tokenInfoMap: new Map([[token.contractId, token]]) });
+    const coin = await build(amount.toString());
+    expect(coin.inputTransfers[0]?.amount).toBe((amount * 7n).toString());
+    await expect(build(`${amount}.2`)).rejects.toThrow('Amount mismatch');
+    await expect(build(amount.toString(), '11111')).rejects.toThrow('wallet address');
+    const burn = await build(amount.toString(), 'W5jE3KNH');
+    expect(burn.outputTransfers[0]?.walletAddress).toEqual(new TextEncoder().encode(':fire:'));
+    expect(toSmallestUnits('0.285714', token.contractId, { denomination: '7' })).toBe('1');
+    expect(fromSmallestUnits((amount * 7n).toString(), token.contractId, { denomination: '7' })).toBe(amount.toString());
+  });
+
+  it('checks embedded action identities, restricted key exceptions, and detached proof sizes', () => {
+    const address = new Uint8Array(32);
+    const child = create(MintTXNSchema, { base: { publicKey: { walletAddress: address }, signature: new Uint8Array(64) } });
+    const parent = create(GovernanceProposalSchema, {
+      governanceTxn: [{ txnType: 2, serializedTxn: toBinary(MintTXNSchema, child) }]
+    });
+    expect(() => assertAuthenticationBudget(parent)).toThrow('detached Falcon proof');
+    const grant = create(InstrumentContractSchema, { restrictedKeys: [{ publicKey: { parentContract: KALVORA_NATIVE_TOKEN } }] });
+    expect(() => assertAuthenticationBudget(grant)).not.toThrow();
+    grant.restrictedKeys[0]!.publicKey!.walletAddress = address;
+    expect(() => assertAuthenticationBudget(grant)).toThrow('registered wallet addresses');
+  });
+
+  it('rejects unknown registration or policy fields that cannot be committed by the descriptor', () => {
+    const unknown = Uint8Array.of(0xf8, 0x07, 0x01);
+    const reg = fromBinary(WalletRegistrationSchema, new Uint8Array([...Buffer.from(vectors.signed_policy_registration, 'hex'), ...unknown]));
+    expect(() => assertAuthenticationBudget(reg)).toThrow('Unknown wallet registration fields');
+    if (reg.identity.case !== 'policy') throw new Error('Expected policy vector');
+    const wire = toBinary(WalletPolicySchema, reg.identity.value);
+    expect(() => encodePolicyDescriptor(fromBinary(WalletPolicySchema, new Uint8Array([...wire, ...unknown])))).toThrow('Unknown wallet policy fields');
+  });
+
   it('reproduces the validator policy descriptor, registration hash and both witness preimages', () => {
     const wire = Buffer.from(vectors.signed_policy_registration, 'hex');
     const reg = fromBinary(WalletRegistrationSchema, new Uint8Array(wire));

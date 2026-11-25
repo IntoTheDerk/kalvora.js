@@ -2,7 +2,7 @@
 
 The SDK can generate a Falcon wallet, register it, and spend seven kalvs from that address in the following block. The Linux validator accepted both SDK-generated protobuf messages and reproduced the resulting balance and nonce after replay and restart. **The live network rehearsal is deferred.**
 
-This overview covers the SDK changes for validator 200030 and attestation protocol 33. Review and CI are tracked in [pull request #13](https://github.com/IntoTheDerk/kalvora.js/pull/13). The [original migration handoff](kalvora-js-protocol-handoff-2026-11-25/documents/howto/kalvora_js_protocol_handoff.md) records the validator revision and launch profile.
+The original handoff targets validator `200030`, attestation protocol 33. The intended `kal_proto` rehearsal uses v35 (`200032`, Wasm preparation gas enabled). The three public SDK protobufs are byte-identical across the archived handoff and the local v35 source. The launch version is part of the signed genesis, so the rehearsal needs its own verified block-zero hash and operator assignment. [Original handoff](kalvora-js-protocol-handoff-2026-11-25/documents/howto/kalvora_js_protocol_handoff.md) · [Pull request and CI](https://github.com/IntoTheDerk/kalvora.js/pull/13)
 
 ## What changed
 
@@ -30,7 +30,17 @@ The [quick start](../README.md#quick-start) shows a self-funded registration. Th
 
 For application code, see the [wallet example](../src/wallet-creation/examples/basic-usage.ts), [registered vote](../src/vote/examples/registered-vote.ts), [instrument contract example](../src/contract/create/examples/example.ts) and [governance proposals](../src/proposal/README.md). Retained Ed examples are labeled as historical and point to the current signing flow.
 
-For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts) can compare the served genesis hash and verify the expected operator's signed contract response. The separate [proposal submission test](../src/proposal/tests/live-coin-proposal.test.ts) requires explicit opt-in and a funded, registered protonet wallet. Its header lists the environment variables.
+For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts) can compare the served genesis hash and verify the expected operator's signed contract response. Set `KALVORA_LIVE_VALIDATOR_VERSION=200032` to also check the v35 genesis header version. The separate [proposal submission test](../src/proposal/tests/live-coin-proposal.test.ts) requires explicit opt-in and a funded, registered protonet wallet. Its header lists the environment variables.
+
+## Second-pass fixes before the rehearsal
+
+| Area | What the second review changed |
+| --- | --- |
+| Amounts and fees | Coin uses the actual parts-per-token denomination. Fixed contract fees are interpreted in their first allowed fee instrument before conversion to the selected fee instrument. Large transfer amounts and gas caps retain integer precision. Updating a cap after partial signing requires fresh proofs. |
+| Proofs and recipients | Nested governance children receive authentication checks, and policy registrations reject unknown fields. Coin, Mint, item, compliance and allowance paths validate destination widths and padding. Burn and proposal-address exceptions follow the rules of each operation. |
+| Contracts | Creation verifies a supplied wallet-created ID even when its vanity nonce defaults to zero. The builder validates token supply, denomination and premints, and rejects duplicate grant authorities and self-parent grants. |
+| Governance and receipts | Adaptive proposals enforce the 90-day deadline and council restrictions. Proposal reads preserve POST state and a winning option of zero. V35 can finish several closing steps in one certified block. The decoder retains ordered results from that block. Receipt lookup checks hash width, marker fields and returned block height. |
+| Timeouts and wallet selection | Unary RPCs honor the configured timeout. Receipt polling can end during a stalled read or finality check. An offline regression reconciles a committed registration after a lost acknowledgement using the original signed hash, finalized receipt, nonce and registry. Injected-wallet selection follows the selected address even if multiple addresses share one public key. |
 
 ## Verification
 
@@ -39,15 +49,18 @@ For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts)
 | Wire compatibility | SDK tests cover all 22 supplied key/address pairs, three frozen registrations and five contract-ID vectors. All 30 archived files and the three synced SDK protos match their SHA-256 checksums. |
 | Wallet runtimes | Node 24.13 and headless Microsoft Edge exercised local Falcon signing. Edge generated, backed up, restored, signed and verified both variants through the wallet entry point. The declared Node floor is 20.19. |
 | SDK to Linux validator | Passed the native `falcon-wallet-settlement-test --client-interop` with a freshly signed registration at nonce 1 and a seven-kalv payment at authorization nonce 2. The fixture checked execution, balances, nonces, replay and restart persistence. A first attempt exposed the first-balance-row fee. The exporter now supplies the fixture's adequate cap. |
+| V35 native acceptance | Fresh SDK registration and payment bytes passed `--client-interop` in an isolated `200032` Linux build with preparation gas enabled. The same build passed the full `settlement` fixture. These runs used a synthetic genesis with networking disabled. |
+| Android packaging | Android Metro 0.76.5 bundled the wallet entry from the npm tarball. The React Native 0.72 Hermes compiler generated HBC 94 bytecode. A clean Android runtime test remains pending because this machine's offline Gradle cache lacks the matching React Native and Hermes Android packages. |
+| Public proto gateway | The supplied host resolved in DNS. All five read-only smoke checks and a direct `POST /api/Balance` timed out connecting to TCP 443. `GET /health` also timed out before TLS or HTTP. The gateway supplied no block, version or signed response. |
 | Fee boundary | The local native fixture accepted caps of 1,779 parts for registration and 200,000,000,000,001,031 parts for Coin with its new balance row. Independently reducing either cap by one part and re-signing caused rejection. These amounts describe this fixture and fee schedule. |
-| SDK validation | `npm run validate` passed type-checking and lint with zero warnings. The full suite passed 1,220 tests. Six opt-in network tests were skipped. |
+| SDK validation | `npm run validate` passed type-checking and lint with zero warnings. The full offline run passed 1,252 tests and skipped six opt-in network tests. The separate gateway check above records the outcome of the five read-only cases. |
 | Package build | `npm run build` succeeded. `npm run build:validate-bundles` passed all 16 checks, including browser loading and parity across the 302 CommonJS and ESM exports. |
 
 ## Remaining work
 
 | Owner | Action | Completion evidence |
 | --- | --- | --- |
-| Network operator and application team | Schedule the deferred rehearsal and supply the deployed profile, network name, independently verified final genesis hash, service endpoints, TLS trust and expected operator identity. | The client can bind to the intended finalized network. |
+| Network operator and application team | Confirm that the separate Envoy gateway is listening publicly on TCP 443 and that the firewall permits access. Provide the independently verified final v35 genesis hash and registered operator address for `kal_proto`, then repeat the pinned reads. | HTTPS `/health` responds, the genesis hash and header version match, and the expected operator's registered Falcon key verifies a signed contract response. |
 | SDK and wallet teams | Rehearse zero-balance sponsored registration, mixed-variant policy spending, fee boundaries, safe send across H/H+1, wrong chain/type and timeout recovery. Exercise wide addresses through a deployed query and wallet adapter. | Finalized receipts, balances, registry and nonce observations for each scenario. |
 | Governance and validator operators | Rehearse a governance state change between voter pages, PRE/POST step zero, a grouped child terminal receipt, signed search responses and a dual-signed validator assignment. Use native KALV for that assignment after the validator registration fee policy is installed. | Verified page restarts, exact signed reply and receipt matches, and the finalized owner/operator record. |
 | Wallet integrators | Exercise real injected, deep-link and WalletConnect providers and the target React Native runtime. | Verified receiving address, backup recovery and both signature variants on the supported devices. |

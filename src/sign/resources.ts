@@ -1,10 +1,12 @@
 import { clone, fromBinary, isMessage, toBinary, type Message } from '@bufbuild/protobuf';
 
 import {
-  PublicKeySchema, type BaseTXN, type CoinTXN, type GovernanceProposal, type GovernanceTXN,
+  PublicKeySchema, RestrictedKeySchema, WalletRegistrationSchema, type BaseTXN, type CoinTXN, type GovernanceProposal, type GovernanceTXN,
   type PublicKey, type ValidatorRegistration
 } from '../../proto/generated/txn_pb.js';
 import { getSchemaForTypeName } from '../adapter/serialization.js';
+import { isCanonicalContractId } from '../protocol/contract-id.js';
+import { isPaymentRecipientBytes } from '../shared/crypto/address-utils.js';
 import { isWalletAddressBytes } from '../shared/crypto/falcon-address.js';
 import { createTransactionHash } from '../shared/crypto/signature-utils.js';
 
@@ -27,16 +29,32 @@ function registeredAddress(key?: PublicKey): Uint8Array {
   return key.walletAddress;
 }
 
-function checkProof(key: PublicKey | undefined, signature: Uint8Array | undefined) {
-  registeredAddress(key);
-  const padded = (s?: Uint8Array) => s?.length === 666 || s?.length === 1280;
-  if (key?.witnesses.length) {
-    if (signature?.length) throw new Error('Policy authorization must contain only witnesses');
+function padded(signature?: Uint8Array): boolean {
+  return signature?.length === 666 || signature?.length === 1280;
+}
+
+function checkKey(key: PublicKey, restricted: boolean): void {
+  if (restricted && key.witnesses.length) throw new Error('Restricted keys cannot contain witnesses');
+  if (key.walletAddress !== undefined) {
+    registeredAddress(key);
     let previous = -1;
-    for (const { slot, signature: witness } of key.witnesses) {
-      if (slot <= previous || slot >= 64 || !padded(witness)) throw new Error('Invalid policy witness');
+    for (const { slot, signature } of key.witnesses) {
+      if (!Number.isInteger(slot) || slot <= previous || slot >= 64 || !padded(signature)) throw new Error('Invalid policy witness');
       previous = slot;
     }
+    return;
+  }
+  if (key.single.length || key.multi || key.witnesses.length) throw new Error('Invalid fresh-genesis public key');
+  if (restricted && key.parentContract !== undefined && key.governanceAuth === undefined && key.smartContractAuth === undefined &&
+      isCanonicalContractId(key.parentContract)) return;
+  if (key.parentContract !== undefined || (key.governanceAuth !== undefined) === (key.smartContractAuth !== undefined) ||
+      !(key.governanceAuth ?? key.smartContractAuth)?.length) throw new Error('Invalid internal authorization key');
+}
+
+function checkProof(key: PublicKey | undefined, signature: Uint8Array | undefined) {
+  registeredAddress(key);
+  if (key?.witnesses.length) {
+    if (signature?.length) throw new Error('Policy authorization must contain only witnesses');
   } else if (!padded(signature)) throw new Error('Missing padded Falcon proof');
 }
 
@@ -47,7 +65,11 @@ export function assertRegisteredSubmission(txn: Message & { base?: BaseTXN }): v
   const owner = registeredAddress(base.publicKey);
   if (txn.$typeName === 'kal_txn.CoinTXN') {
     if (base.signature !== undefined || base.feePayer || base.publicKey?.witnesses.length) throw new Error('Coin proofs belong in authorization slots');
-    const auth = (txn as CoinTXN).auth;
+    const coin = txn as CoinTXN;
+    if (coin.outputTransfers.some(output => !isPaymentRecipientBytes(output.walletAddress))) {
+      throw new Error('Invalid Coin recipient wallet address');
+    }
+    const auth = coin.auth;
     if (!auth || auth.signature.length !== auth.publicKey.length) throw new Error('Coin requires one proof slot per authorization');
     auth.publicKey.forEach((key, i) => checkProof(key, auth.signature[i]));
   } else {
@@ -90,10 +112,16 @@ export function assertAuthenticationBudget(txn: Message & { base?: BaseTXN }): v
   let verifications = 0;
   let verificationBytes = 0;
 
-  function material(message: Message): void {
+  function material(message: Message, restricted = false): void {
     if (isMessage(message, PublicKeySchema)) {
+      checkKey(message, restricted);
       authBytes += toBinary(PublicKeySchema, message).length;
       return;
+    }
+    if (isMessage(message, WalletRegistrationSchema)) {
+      if (message.identity.case === 'falcon' && message.identity.value.rawPublicKey.length > 1793) throw new Error('Oversized registration key');
+      if (toBinary(WalletRegistrationSchema, message).length !==
+          toBinary(WalletRegistrationSchema, message, { writeUnknownFields: false }).length) throw new Error('Unknown wallet registration fields');
     }
     if (message.$typeName === 'kal_txn.FalconPublicKey' || message.$typeName === 'kal_txn.WalletPolicy') {
       const schema = getSchemaForTypeName(message.$typeName);
@@ -101,7 +129,7 @@ export function assertAuthenticationBudget(txn: Message & { base?: BaseTXN }): v
       return;
     }
     for (const value of Object.values(message) as unknown[]) {
-      if (isMessage(value)) material(value);
+      if (isMessage(value)) material(value, isMessage(message, RestrictedKeySchema));
       else if (Array.isArray(value)) value.forEach(item => { if (isMessage(item)) material(item); });
       else if (value && typeof value === 'object' && 'case' in value && 'value' in value && isMessage(value.value)) material(value.value);
     }
@@ -115,6 +143,9 @@ export function assertAuthenticationBudget(txn: Message & { base?: BaseTXN }): v
     let checks = 0;
     function proof(key?: PublicKey, signature?: Uint8Array, consumed = true) {
       authBytes += signature?.length ?? 0;
+      if (signature?.length && (!key?.walletAddress || key.witnesses.length || !padded(signature))) {
+        throw new Error('Invalid detached Falcon proof');
+      }
       if (consumed) checks += (signature?.length ? 1 : 0) + (key?.witnesses.length ?? 0);
     }
     material(message);
@@ -132,7 +163,7 @@ export function assertAuthenticationBudget(txn: Message & { base?: BaseTXN }): v
     }
     if (message.$typeName === 'kal_txn.ValidatorRegistration') {
       const reg = message as ValidatorRegistration;
-      proof(undefined, reg.generatedSignature, reg.register);
+      proof(reg.generatedPublicKey, reg.generatedSignature, reg.register);
     }
     verifications += checks;
     verificationBytes += checks * toBinary(schema, message).length;

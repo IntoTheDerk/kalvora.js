@@ -278,6 +278,7 @@ export function toTransactionResult(raw: TXNStatusFees): TransactionResult {
   if (raw.status === undefined) {
     throw new Error('TXNStatusFees.status is missing; this record is not a processing receipt');
   }
+  if (raw.txnHash.length !== 32) throw new Error('TXNStatusFees.txnHash must be 32 bytes');
   return {
     hash: bytesToHex(raw.txnHash),
     status: raw.status,
@@ -302,6 +303,9 @@ export function listGovernanceChildOutcomes(block: Block) {
     const group = outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_GROUP_OUTPUT_TOO_LARGE;
     if (group && (!outcome.terminalGroupChildCount || outcome.terminalGroupSha256?.length !== 32 ||
         outcome.receiptIndex !== undefined)) throw new Error('Invalid governance child group marker');
+    if (!group && (outcome.terminalGroupChildCount !== undefined || outcome.terminalGroupSha256 !== undefined)) {
+      throw new Error('Only an oversized governance child group may carry a terminal count or digest');
+    }
     const hasReceipt = outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_RECEIPT_SUCCESS ||
       outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_RECEIPT_FAILURE;
     const raw = outcome.receiptIndex === undefined ? undefined : txns.txnFeesAndStatus[outcome.receiptIndex];
@@ -324,6 +328,7 @@ export function listGovernanceChildOutcomes(block: Block) {
  */
 export function findTransactionResult(block: Block, txnHash: string): TransactionResult | undefined {
   const wanted = txnHash.toLowerCase().replace(/^0x/u, '');
+  if (!/^[0-9a-f]{64}$/u.test(wanted)) throw new Error('txnHash must be a 32-byte hex string');
   const raw = block.transactions?.txnFeesAndStatus.find(entry =>
     bytesToHex(entry.txnHash) === wanted && entry.status !== undefined
   );
@@ -369,7 +374,7 @@ export function summarizeBlock(block: Block): BlockSummary {
     transactionCount: transactions.length,
     transactionsByType,
     results: (block.transactions?.txnFeesAndStatus ?? [])
-      .filter(entry => entry.status !== undefined)
+      .filter(entry => entry.status !== undefined && entry.txnHash.length === 32)
       .map(toTransactionResult)
   };
 }

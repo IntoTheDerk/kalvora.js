@@ -1,7 +1,8 @@
 /* global MessageEvent, Storage */
+import bs58 from 'bs58';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { FalconWallet, WALLET_HASH } from '../../wallet-creation/falcon.js';
+import { deriveFalconAddress, FalconWallet, WALLET_HASH } from '../../wallet-creation/falcon.js';
 import {
   KALVORA_ADAPTER_BROADCAST,
   KALVORA_ADAPTER_STORAGE_KEYS,
@@ -24,6 +25,24 @@ const VALID_ADDRESS = VALID_PUBLIC_KEY.slice(2);
 const VALID_SIGNATURE_BASE64 = Buffer.from(new Uint8Array(64).fill(7)).toString('base64');
 
 describe('Falcon adapter accounts', () => {
+  it('updates the signer when an injected wallet selects another address on the same key', async () => {
+    const owner = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: '47'.repeat(32) });
+    const wide = bs58.encode(deriveFalconAddress(owner.rawPublicKey, WALLET_HASH.BLAKE3_9001));
+    const listeners = new Map<string, (payload: unknown) => void>();
+    Object.assign(browserWindow, { [KALVORA_INJECTED_PROVIDER_KEY]: {
+      [KALVORA_PROVIDER_FLAG]: true, isConnected: true, publicKey: owner.publicKey,
+      request: async () => [{ publicKey: owner.publicKey, walletAddress: owner.walletAddress }],
+      on: (event: string, listener: (payload: unknown) => void) => listeners.set(event, listener)
+    } });
+    const adapter = new KalvoraWalletAdapter({ chainId: owner.chainId });
+    await adapter.connect();
+    listeners.get('accountsChanged')!({ accounts: [owner.publicKey], addresses: [wide] });
+    expect(adapter.address).toBe(wide);
+    expect(adapter.signer?.walletHash).toBe(WALLET_HASH.BLAKE3_9001);
+    listeners.get('accountsChanged')!([{ publicKey: owner.publicKey, walletAddress: 'invalid' }]);
+    expect(adapter.signer).toBeNull();
+    expect(adapter.connected).toBe(false);
+  });
   it('uses the selected address in both injected and WalletConnect requests and rejects a different signed payload', async () => {
     const owner = FalconWallet.generate({ networkName: 'kal_main', genesisHash: '47'.repeat(32), variant: 2 });
     const data = Uint8Array.of(3, 6);

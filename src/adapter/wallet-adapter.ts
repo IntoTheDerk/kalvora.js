@@ -118,6 +118,18 @@ interface PendingConnectRequest {
   timestamp: number;
 }
 
+function firstProviderAccount(result: unknown): { publicKey: unknown; address: unknown } | undefined {
+  const response = result as { accounts?: unknown[]; addresses?: unknown[] } | undefined;
+  const accounts = Array.isArray(result) ? result : response?.accounts;
+  if (!Array.isArray(accounts) || !accounts.length) return undefined;
+  const first = accounts[0];
+  if (first && typeof first === 'object') {
+    const account = first as { publicKey?: unknown; address?: unknown; walletAddress?: unknown };
+    return { publicKey: account.publicKey, address: account.walletAddress ?? account.address };
+  }
+  return { publicKey: first, address: response?.addresses?.[0] };
+}
+
 function isValidWalletPublicKey(publicKey: unknown): publicKey is string {
   if (typeof publicKey !== 'string') return false;
   if (!publicKey.includes('_')) {
@@ -402,17 +414,9 @@ export class KalvoraWalletAdapter {
 
     try {
       const result = await provider.request(KALVORA_PROVIDER_METHODS.requestAccounts, {});
-      const accounts = Array.isArray(result) ? result : (result as { accounts?: string[] })?.accounts ?? [];
-      // Parse optional addresses array (wallet app provides actual wallet address)
-      const addresses = !Array.isArray(result) ? (result as { addresses?: string[] })?.addresses ?? [] : [];
-
-      if (!accounts.length) {
-        throw new Error('No accounts returned from wallet');
-      }
-
-      const first = accounts[0];
-      const publicKey = typeof first === 'object' && first ? first.publicKey : first;
-      const address = typeof first === 'object' && first ? first.address : addresses[0];
+      const account = firstProviderAccount(result);
+      if (!account) throw new Error('No accounts returned from wallet');
+      const { publicKey, address } = account;
       if (!isValidWalletPublicKey(publicKey)) {
         throw new Error('Wallet provider returned an invalid Kalvora public key');
       }
@@ -839,12 +843,11 @@ export class KalvoraWalletAdapter {
   private _setupProviderListeners(provider: KalvoraProvider): void {
     if (typeof provider.on !== 'function') return;
 
-    provider.on('connect', (...args: unknown[]) => {
-      const info = args[0] as { publicKey?: string; address?: string | null } | undefined;
-      if (!info) return;
+    const select = (info: { publicKey?: unknown; address?: unknown }): boolean => {
+      if (this._provider !== provider) return false;
 
       // Don't emit if already connected to this exact key
-      if (this._state === 'connected' && this._publicKey === info.publicKey && this._address === info.address) return;
+      if (this._state === 'connected' && this._publicKey === info.publicKey && this._address === info.address) return true;
 
       if (isValidWalletPublicKey(info.publicKey)) {
         let verifiedAddress: string;
@@ -852,7 +855,7 @@ export class KalvoraWalletAdapter {
           verifiedAddress = resolveWalletAddress(info.publicKey, info.address, this._chainId);
         } catch (err) {
           this._emit('error', err);
-          return;
+          return false;
         }
         this._publicKey = info.publicKey;
         this._address = verifiedAddress;
@@ -861,11 +864,12 @@ export class KalvoraWalletAdapter {
         this._state = 'connected';
         this._persistConnection();
         this._emit('connect', { publicKey: info.publicKey, address: verifiedAddress, mode: 'embedded' });
+        return true;
       }
-    });
-
-    provider.on('disconnect', () => {
-      if (this._state === 'disconnected') return;
+      return false;
+    };
+    const clear = () => {
+      if (this._provider !== provider || this._state === 'disconnected') return;
       this._publicKey = null;
       this._address = null;
       this._signer = null;
@@ -873,7 +877,18 @@ export class KalvoraWalletAdapter {
       this._state = 'disconnected';
       this._clearPersistence();
       this._emit('disconnect');
+    };
+    provider.on('connect', (value: unknown) => {
+      if (value && typeof value === 'object') {
+        const account = value as { publicKey?: unknown; address?: unknown; walletAddress?: unknown };
+        select({ publicKey: account.publicKey, address: account.walletAddress ?? account.address });
+      }
     });
+    provider.on('accountsChanged', (value: unknown) => {
+      const account = firstProviderAccount(value);
+      if (!account || !select(account)) clear();
+    });
+    provider.on('disconnect', clear);
   }
 
   private _detectProvider(): KalvoraProvider | null {

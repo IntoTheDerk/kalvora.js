@@ -11,7 +11,9 @@ export function encodePolicyDescriptor(policy: WalletPolicy, walletHash: WalletH
     throw new Error('A policy requires 1 to 64 members and 1 to 64 patterns');
   }
   const limit = 128 * 1024;
-  if (toBinary(WalletPolicySchema, policy).length > limit) throw new Error('Policy exceeds 128 KiB');
+  const size = toBinary(WalletPolicySchema, policy).length;
+  if (size > limit) throw new Error('Policy exceeds 128 KiB');
+  if (size !== toBinary(WalletPolicySchema, policy, { writeUnknownFields: false }).length) throw new Error('Unknown wallet policy fields');
   const bytes = [...new TextEncoder().encode('KAL_WALLET_MULTISIG_V1')];
   const u32 = (n: number) => {
     if (!Number.isInteger(n) || n < 0 || n > 0xffffffff) throw new Error('Expected an unsigned 32-bit policy integer');

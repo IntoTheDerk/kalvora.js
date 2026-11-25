@@ -36,10 +36,10 @@ export interface ExpenseRatioInput {
   publicKey: string;
   /** Contract whose expense ratio is collected, e.g. `KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao`. */
   contractId: string;
-  /** Base58 holder addresses to collect from (non-empty, unique). */
+  /** Distinct Base58 holder addresses to collect from. */
   addresses: string[];
-  /** Base58 address that receives the collected tokens. */
-  outputAddress: string;
+  /** Wallet or burn destination. May be omitted for an empty payer list. */
+  outputAddress?: string;
 }
 
 function buildExpenseRatioFields(input: ExpenseRatioInput): {
@@ -51,8 +51,8 @@ function buildExpenseRatioFields(input: ExpenseRatioInput): {
     throw new Error('ExpenseRatioTXN input must be an object');
   }
   const contractId = requireContractId(input.contractId, 'contractId');
-  if (!Array.isArray(input.addresses) || input.addresses.length === 0) {
-    throw new Error('addresses must be a non-empty array of base58 addresses');
+  if (!Array.isArray(input.addresses)) {
+    throw new Error('addresses must be an array of base58 addresses');
   }
   const seen = new Set<string>();
   const addresses = input.addresses.map((address, i) => {
@@ -64,7 +64,8 @@ function buildExpenseRatioFields(input: ExpenseRatioInput): {
     seen.add(normalized);
     return bytes;
   });
-  const outputAddress = parseAddress(input.outputAddress, 'outputAddress');
+  const outputAddress = !addresses.length && (input.outputAddress === undefined || input.outputAddress === '')
+    ? new Uint8Array() : parseAddress(input.outputAddress, 'outputAddress', true);
   return { contractId, addresses, outputAddress };
 }
 

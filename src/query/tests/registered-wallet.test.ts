@@ -5,7 +5,8 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { APIService, ContractResponseSchema, SmartContractEventsResponseSchema, SmartContractEventsSearchRequestSchema, SmartContractEventsSearchResponseSchema } from '../../../proto/generated/kal_api_pb.js';
 import { FalconPublicKeySchema, GovernanceChildDisposition, TXNService, TRANSACTION_TYPE, WalletRegistrationSchema, TXN_STATUS } from '../../../proto/generated/txn_pb.js';
-import { BlockSchema } from '../../../proto/generated/validator_pb.js';
+import { BlockSchema, ValidatorService } from '../../../proto/generated/validator_pb.js';
+import { createValidatorAPIClient } from '../../grpc/api/validator-api-client.js';
 import { submitTransaction } from '../../grpc/transaction/transaction-client.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
 import { bytesToHex } from '../../shared/utils/byte-utils.js';
@@ -15,6 +16,7 @@ import { buildWalletRegistration } from '../../wallet-registration/index.js';
 import { createQueryClient } from '../api-client.js';
 import { listBlockTransactions, listGovernanceChildOutcomes } from '../decoders.js';
 import { acceptSmartContractEvent, eventSearchRequestDigest } from '../events.js';
+import { createValidatorQueryClient } from '../validator-client.js';
 
 vi.unmock('@connectrpc/connect');
 vi.unmock('@connectrpc/connect-web');
@@ -23,6 +25,43 @@ const hash = new Uint8Array(32).fill(3);
 const hex = '03'.repeat(32);
 
 describe('registered wallet RPCs', () => {
+  it('preserves wide wallet bytes and limits proposal escrow and burn selectors to account reads', async () => {
+    const received: Uint8Array[] = [];
+    const seen = (req: { walletAddress: Uint8Array }) => { received.push(req.walletAddress); return {}; };
+    const transport = createRouterTransport(({ service }) => {
+      service(APIService, { nonce: seen, balance: seen, totalBalance: seen, items: seen, getSigningWallet: seen });
+      service(ValidatorService, { nonce: seen, balance: seen });
+    });
+    const query = createQueryClient({ transport });
+    const validator = createValidatorQueryClient({ transport });
+    const api = createValidatorAPIClient({ transport });
+    const wide = new Uint8Array(1126).fill(0x80);
+    const escrow = Uint8Array.of(0x70, 0x5f, ...hash);
+    const burn = new TextEncoder().encode(':fire:');
+    for (const bytes of [wide, escrow, burn]) {
+      const address = bs58.encode(bytes);
+      received.length = 0;
+      await Promise.all([query.getBalance(address, KALVORA_NATIVE_TOKEN), query.getNonce(address), query.getAllBalances(address),
+        validator.getBalance(address, KALVORA_NATIVE_TOKEN), validator.getNonce(address),
+        api.getBalance(address, KALVORA_NATIVE_TOKEN), api.getNonce(address)]);
+      expect(received).toHaveLength(7);
+      for (const raw of received) expect(raw).toEqual(bytes);
+      if (bytes === wide) {
+        await query.getItems(address);
+        await query.getSigningWallet(address);
+        expect(received.slice(-2)).toEqual([wide, wide]);
+      } else {
+        await expect(query.getItems(address)).rejects.toThrow(/address/i);
+        await expect(query.getSigningWallet(address)).rejects.toThrow(/address/i);
+        expect(received).toHaveLength(7);
+      }
+    }
+    for (const invalid of [new Uint8Array(34), new Uint8Array(1126).fill(1)]) {
+      await expect(api.getNonce(bs58.encode(invalid))).rejects.toThrow(/address/u);
+      await expect(query.getBalance(bs58.encode(invalid), KALVORA_NATIVE_TOKEN)).rejects.toThrow(/address/u);
+    }
+  });
+
   it('matches an independently framed search digest including negative seconds, nanos and the exact cursor', () => {
     const request = create(SmartContractEventsSearchRequestSchema, {
       smartContractId: 'dex', searchStart: { seconds: -1n, nanos: 250000000 }, pageSize: 7, pageCursor: Uint8Array.of(0, 254)
@@ -96,6 +135,13 @@ describe('registered wallet RPCs', () => {
     expect(detail?.firstPage.preGovernanceStage).toBe(0);
   });
 
+  it('rejects a completed granular snapshot with missing whitelist rows', async () => {
+    const transport = createRouterTransport(({ service }) => service(APIService, { proposalDetail: () => ({
+      proposalId: hash, stateDigest: hash, granular: { whitelistSize: 2 }, voters: [{ wallet: hash }]
+    }) }));
+    await expect(createQueryClient({ transport }).getProposalDetail(hex, 1)).rejects.toThrow(/whitelist size/u);
+  });
+
   it('verifies the signed search around stored events, the request digest, and each opaque cursor', async () => {
     const signer = FalconWallet.generate({ networkName: 'kal_main', genesisHash: hex });
     const key = create(FalconPublicKeySchema, { variant: signer.variant, rawPublicKey: signer.rawPublicKey });
@@ -146,5 +192,14 @@ describe('registered wallet RPCs', () => {
     expect(await createQueryClient({ transport }).getTransactionResult(hex, 1)).toMatchObject({
       status: 45, statusName: 'SMART_CONTRACT_OUTPUT_TOO_LARGE', success: false, gas: 52n
     });
+  });
+
+  it('rejects terminal group fields on ordinary outcomes, including an explicit count of zero', () => {
+    for (const extra of [{ terminalGroupChildCount: 0 }, { terminalGroupSha256: hash }]) {
+      const block = create(BlockSchema, { transactions: { governanceChildOutcomes: [{
+        ...extra, disposition: GovernanceChildDisposition.GOVERNANCE_CHILD_SPENT_NONCE
+      }] } });
+      expect(() => listGovernanceChildOutcomes(block)).toThrow(/terminal count or digest/u);
+    }
   });
 });

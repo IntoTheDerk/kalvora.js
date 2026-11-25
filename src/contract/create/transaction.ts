@@ -25,6 +25,7 @@ import { UniversalFeeCalculator, type FeeConfigHelper } from '../../shared/fee-c
 import { logger } from '../../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../../shared/tx/base.js';
+import { parseUint256 } from '../../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.js';
 import { optionsForSigner, signBuiltTransaction } from '../../sign/builder.js';
 import type { GRPCConfig } from '../../types/index.js';
@@ -102,16 +103,17 @@ function creatorAuthorization(publicKeyId: string): {
   };
 }
 
-function resolveContractId(options: BuildContractOptions): string {
-  if (options.vanityNonce === undefined) {
+function resolveContractId(options: BuildContractOptions, freshCreator: boolean): string {
+  if (options.vanityNonce === undefined && !freshCreator) {
     if (!options.contractId) {
       throw new Error('contractId is required when vanityNonce is not set');
     }
     return options.contractId;
   }
+  const vanityNonce = options.vanityNonce ?? 0n;
   const derived = deriveOrdinaryContractId({
     ...creatorAuthorization(options.publicKeyBase58Identifier),
-    vanityNonce: options.vanityNonce,
+    vanityNonce,
     contractDataHash: deriveContractDataHash({
       symbol: options.symbol,
       type: options.type,
@@ -136,7 +138,7 @@ function resolveContractId(options: BuildContractOptions): string {
     })
   });
   if (options.contractId !== undefined && options.contractId !== derived) {
-    throw new Error(`contractId does not match the ID derived from vanityNonce ${options.vanityNonce}`);
+    throw new Error(`contractId does not match the ID derived from vanityNonce ${vanityNonce}`);
   }
   return derived;
 }
@@ -144,14 +146,15 @@ function resolveContractId(options: BuildContractOptions): string {
 export async function buildContractTXN(
   options: BuildContractOptions
 ): Promise<InstrumentContract> {
-  validateCurrentContractFields(options);
   if (!options.publicKeyBase58Identifier) throw new Error('Public key identifier is required');
-  const contractId = resolveContractId(options);
+  const internalCreator = options.publicKeyBase58Identifier.startsWith('gov_') || options.publicKeyBase58Identifier.startsWith('sc_');
+  const freshCreator = internalCreator || isWalletAddress(options.publicKeyBase58Identifier);
+  const contractId = resolveContractId(options, freshCreator);
+  validateCurrentContractFields({ ...options, contractId });
   validateCreateContractOptions({
     contractId, symbol: options.symbol,
     name: options.name, contractVersion: options.contractVersion, type: options.type
   });
-  const internalCreator = options.publicKeyBase58Identifier.startsWith('gov_') || options.publicKeyBase58Identifier.startsWith('sc_');
   if (internalCreator) {
     if (options.nonce === undefined || options.feeAmountParts === undefined) {
       throw new Error('Supply the embedded nonce and fee cap for an internal contract creator');
@@ -176,10 +179,17 @@ export async function buildContractTXN(
     }
   } else if (!options.coinDenomination) {
     throw new Error('TOKEN contracts require coinDenomination');
+  } else if (freshCreator) {
+    if (options.maxSupply === undefined) throw new Error('TOKEN contracts require maxSupply');
+    parseUint256(options.coinDenomination.amount, 'coinDenomination.amount', false);
   }
+  if (freshCreator && options.maxSupply !== undefined) parseUint256(options.maxSupply, 'maxSupply');
 
   if (options.premintWallets) {
-    validatePremintWallets({ contractType: options.type, premintWallets: options.premintWallets });
+    validatePremintWallets({
+      contractType: options.type, premintWallets: options.premintWallets,
+      ...(freshCreator && options.maxSupply !== undefined && { maxSupply: options.maxSupply })
+    });
   }
 
   const grpcConfig = options.grpcConfig || PROTONET_GRPC_CONFIG;

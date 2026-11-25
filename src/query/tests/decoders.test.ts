@@ -270,6 +270,20 @@ describe('decodeContractSupply', () => {
 // ----------------------------------------------------------------------------
 
 describe('listBlockTransactions', () => {
+  it('keeps every committed proposal result when v35 batches governance closing work at one height', () => {
+    const block = create(BlockSchema, { blockHeader: { blockHeight: 8n, version: 200032n }, transactions: {
+      proposalResultTxns: [
+        { proposalId: hash32(1), base: { hash: hash32(3) }, passed: true },
+        { proposalId: hash32(2), base: { hash: hash32(4) }, finalStage: true }
+      ],
+      txnFeesAndStatus: [3, 4].map(i => ({ txnHash: hash32(i), status: TXN_STATUS.OK }))
+    } });
+    expect(listBlockTransactions(block).map(t => [t.type, t.hash])).toEqual([
+      [TRANSACTION_TYPE.PROPOSAL_RESULT_TYPE, hex32(3)], [TRANSACTION_TYPE.PROPOSAL_RESULT_TYPE, hex32(4)]
+    ]);
+    expect(summarizeBlock(block).results.map(r => r.hash)).toEqual([hex32(3), hex32(4)]);
+  });
+
   it('flattens every list in TXNS field order with types and hex hashes', () => {
     const txns = listBlockTransactions(makeBlock());
     expect(txns.map(t => [t.list, t.type, t.hash])).toEqual([
@@ -401,6 +415,16 @@ describe('findTransactionResult', () => {
       txnHash: hash32(1), status: TXN_STATUS.OK
     }));
     expect(findTransactionResult(incomplete, hex32(1))?.success).toBe(true);
+  });
+
+  it('cannot confirm an empty or truncated hash even when a matching malformed row says OK', () => {
+    for (const txnHash of [new Uint8Array(), Uint8Array.of(0xee)]) {
+      const raw = create(TXNStatusFeesSchema, { txnHash, status: TXN_STATUS.OK });
+      const malformed = create(BlockSchema, { transactions: { txnFeesAndStatus: [raw] } });
+      expect(() => toTransactionResult(raw)).toThrow(/32 bytes/u);
+      expect(() => findTransactionResult(malformed, Buffer.from(txnHash).toString('hex'))).toThrow(/32-byte/u);
+      expect(summarizeBlock(malformed).results).toEqual([]);
+    }
   });
 });
 

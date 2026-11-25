@@ -21,6 +21,19 @@ const commonBuildOptions = {
 };
 
 describe('itemized mint transactions', () => {
+  it('accepts a wide wallet and burn fee recipient, and rejects a burn item destination or malformed fee address', async () => {
+    const options = {
+      ...commonBuildOptions, contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '1', recipientAddress: '1'.repeat(1126),
+      contractFees: { fee: '1', burn: '0', validator: '0', feeAddress: 'W5jE3KNH', allowedFeeInstrument: ['ANY'] }
+    };
+    const txn = await buildItemizedMintTXN(options);
+    expect(txn.recipientAddress).toHaveLength(1126);
+    expect(txn.contractFees?.feeAddress).toEqual(new TextEncoder().encode(':fire:'));
+    await expect(buildItemizedMintTXN({ ...options, recipientAddress: 'W5jE3KNH' })).rejects.toThrow('recipientAddress');
+    await expect(buildItemizedMintTXN({ ...options, contractFees: { ...options.contractFees, feeAddress: Uint8Array.of(3) } })).rejects.toThrow('feeAddress');
+    await expect(buildItemizedMintTXN({ ...options, contractFees: { fee: '1', burn: '0', validator: '0' } })).rejects.toThrow('feeAddress is required');
+  });
   it('builds an unsigned ItemizedMintTXN with item metadata', async () => {
     const txn = await buildItemizedMintTXN({
       ...commonBuildOptions,

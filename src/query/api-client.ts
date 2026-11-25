@@ -67,6 +67,7 @@ import {
 } from '../../proto/generated/txn_pb.js';
 import { NFTSchema, type NFT } from '../../proto/generated/validator_pb.js';
 import {
+  POST_GOVERNANCE_OUTCOME,
   PRE_GOVERNANCE_OUTCOME,
   PROPOSAL_PHASE,
   type Block,
@@ -89,7 +90,7 @@ import {
   type TransactionResult
 } from './decoders.js';
 import { eventSearchRequestDigest, matchesOperatorAddress, verifyOperatorResponse, type RegisteredOperator } from './events.js';
-import { itemContractDatabaseKey, latin1ToBytes } from './keys.js';
+import { decodeBalanceNonceAddress, itemContractDatabaseKey, latin1ToBytes } from './keys.js';
 
 // ============================================================================
 // RESULT TYPES
@@ -107,7 +108,7 @@ export interface TokenBalance {
 
 /** Base fee parameters for a transaction type (all USD values scaled by 1e18). */
 export interface BaseFeeInfo {
-  /** Fee per signing key, USD × 1e18. */
+  /** Total fee for the requested signer layout, USD × 1e18. */
   keyFee: bigint;
   /** Fee per serialized byte, USD × 1e18. */
   byteFee: bigint;
@@ -216,20 +217,26 @@ export interface ProposalStatusView {
   contractId: string;
   /** Current governance stage. */
   stage: number;
-  /** Whether the proposal is in regular governance or council pre-governance. */
+  /** Active PRE, regular or POST phase. */
   phase: PROPOSAL_PHASE;
   /** Pre-governance outcome (active, or promotion to regular governance pending). */
   preGovernanceOutcome: PRE_GOVERNANCE_OUTCOME;
-  /** Whether promotion from pre-governance to regular governance is pending. */
+  postGovernanceOutcome: POST_GOVERNANCE_OUTCOME;
+  /** Frozen public choice, including option zero. */
+  postGovernanceWinningOption: number | undefined;
+  /** Whether council activation, entry to regular governance or final execution is pending. */
   promotionPending: boolean;
   /** Pre-governance voting window start. */
   preGovernanceStartDate: Date | undefined;
   /** Pre-governance voting window end. */
   preGovernanceEndDate: Date | undefined;
+  postGovernanceStartDate: Date | undefined;
+  postGovernanceEndDate: Date | undefined;
   /** Regular-governance start requested by the proposer. */
   requestedRegularStartDate: Date | undefined;
   /** Fee charged for the pre-governance phase (smallest units). */
   preGovernanceFee: string;
+  postGovernanceFee: string;
   /** Fee charged for the regular-governance phase (smallest units). */
   regularGovernanceFee: string;
   /** Pre-governance policy of the governing contract, when it has one. */
@@ -271,7 +278,7 @@ export interface SmartContractEvent {
 /** Options for {@link KalvoraQueryClient.waitForTransaction}. */
 export interface WaitForTransactionOptions {
   /** Verify this block against the application's pinned chain and committee or trusted finalized source. */
-  verifyFinalizedBlock?: (block: Block) => boolean | Promise<boolean>;
+  verifyFinalizedBlock?: (block: Block, signal?: AbortSignal) => boolean | Promise<boolean>;
   /**
    * First block height to search. Use the latest height observed *before*
    * submitting the transaction (see {@link KalvoraQueryClient.getLatestBlockHeight}).
@@ -310,11 +317,16 @@ function toProposalStatusView(status: ProposalStatus): ProposalStatusView {
     stage: proposal?.stage ?? 0,
     phase: proposal?.phase ?? PROPOSAL_PHASE.REGULAR_GOVERNANCE,
     preGovernanceOutcome: proposal?.preGovernanceOutcome ?? PRE_GOVERNANCE_OUTCOME.PRE_GOVERNANCE_ACTIVE,
+    postGovernanceOutcome: proposal?.postGovernanceOutcome ?? POST_GOVERNANCE_OUTCOME.POST_GOVERNANCE_ACTIVE,
+    postGovernanceWinningOption: proposal?.postGovernanceWinningOption,
     promotionPending: status.promotionPending,
     preGovernanceStartDate: toDate(proposal?.preGovernanceStartDate),
     preGovernanceEndDate: toDate(proposal?.preGovernanceEndDate),
+    postGovernanceStartDate: toDate(proposal?.postGovernanceStartDate),
+    postGovernanceEndDate: toDate(proposal?.postGovernanceEndDate),
     requestedRegularStartDate: toDate(proposal?.requestedRegularStartDate),
     preGovernanceFee: proposal?.preGovernanceFee ?? '',
+    postGovernanceFee: proposal?.postGovernanceFee ?? '',
     regularGovernanceFee: proposal?.regularGovernanceFee ?? '',
     preGovernance: status.preGovernance,
     preGovernanceStages: status.preGovernanceStages,
@@ -364,6 +376,21 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
   });
 }
 
+/** Stop waiting even when a user-supplied verifier or transport ignores cancellation. */
+async function untilAborted<T>(result: Promise<T>, signal: AbortSignal): Promise<T> {
+  let onAbort: (() => void) | undefined;
+  const aborted = new Promise<never>((_, reject) => {
+    onAbort = () => reject(signal.reason);
+    signal.addEventListener('abort', onAbort, { once: true });
+    if (signal.aborted) onAbort();
+  });
+  try {
+    return await Promise.race([result, aborted]);
+  } finally {
+    if (onAbort) signal.removeEventListener('abort', onAbort);
+  }
+}
+
 // ============================================================================
 // CLIENT
 // ============================================================================
@@ -404,7 +431,7 @@ export class KalvoraQueryClient {
    */
   async getNonce(address: string): Promise<bigint> {
     const response = await this.raw.nonce(create(NonceRequestSchema, {
-      walletAddress: parseAddress(address, 'address'),
+      walletAddress: decodeBalanceNonceAddress(address),
       encoded: false
     }));
     return response.nonce;
@@ -455,7 +482,7 @@ export class KalvoraQueryClient {
    */
   async getBalance(address: string, contractId: string): Promise<TokenBalance> {
     const response = await this.raw.balance(create(BalanceRequestSchema, {
-      walletAddress: parseAddress(address, 'address'),
+      walletAddress: decodeBalanceNonceAddress(address),
       contractId: requireContractId(contractId),
       encoded: false
     }));
@@ -489,7 +516,7 @@ export class KalvoraQueryClient {
    */
   async getAllBalances(address: string): Promise<TokenBalance[]> {
     const response = await this.raw.totalBalance(create(TotalBalanceRequestSchema, {
-      walletAddress: parseAddress(address, 'address'),
+      walletAddress: decodeBalanceNonceAddress(address),
       encoded: false
     }));
     return response.balances.map(b => ({
@@ -645,11 +672,11 @@ export class KalvoraQueryClient {
    *
    * @throws KalvoraRpcError (`NOT_FOUND`) when the block does not exist
    */
-  async getBlock(selector: BlockSelector): Promise<Block> {
+  async getBlock(selector: BlockSelector, signal?: AbortSignal): Promise<Block> {
     const payload = selector.hash !== undefined
       ? { case: 'blockHash' as const, value: selector.hash.toLowerCase().replace(/^0x/u, '') }
       : { case: 'blockHeight' as const, value: parseUint64(selector.height, 'height') };
-    const response = await this.raw.block(create(BlockRequestSchema, { payload, encoded: false }));
+    const response = await this.raw.block(create(BlockRequestSchema, { payload, encoded: false }), signal ? { signal } : undefined);
     if (!response.block) {
       throw new Error('Block response did not contain a block');
     }
@@ -726,29 +753,46 @@ export class KalvoraQueryClient {
    * ```
    */
   async waitForTransaction(txnHash: string, options: WaitForTransactionOptions): Promise<ConfirmedTransaction> {
+    parseHash32(txnHash.toLowerCase(), 'txnHash');
     const timeoutMs = options.timeoutMs ?? 120_000;
     const pollIntervalMs = options.pollIntervalMs ?? 2_000;
     const deadline = Date.now() + timeoutMs;
     let height = parseUint64(options.fromHeight, 'fromHeight');
-
-    for (;;) {
-      if (options.signal?.aborted) throw new Error('Aborted');
-      let block: Block | undefined;
-      try {
-        block = await this.getBlock({ height });
-      } catch (error) {
-        if (!isNotFound(error)) throw error;
+    if (options.signal?.aborted) throw new Error('Aborted');
+    const controller = new AbortController();
+    const { signal } = controller;
+    const timeoutError = () => new Error(`Timed out after ${timeoutMs} ms waiting for transaction ${txnHash} (searched up to height ${height - 1n})`);
+    const timer = setTimeout(() => controller.abort(timeoutError()), timeoutMs);
+    const onAbort = () => controller.abort(new Error('Aborted'));
+    options.signal?.addEventListener('abort', onAbort, { once: true });
+    try {
+      for (;;) {
+        let block: Block | undefined;
+        try {
+          block = await untilAborted(this.getBlock({ height }, signal), signal);
+        } catch (error) {
+          signal.throwIfAborted();
+          if (!isNotFound(error)) throw error;
+        }
+        if (block && options.verifyFinalizedBlock && block.blockHeader?.blockHeight !== height) {
+          throw new Error('Finality check received a block with an unexpected height');
+        }
+        if (block && (!options.verifyFinalizedBlock || await untilAborted(Promise.resolve(options.verifyFinalizedBlock(block, signal)), signal))) {
+          signal.throwIfAborted();
+          const result = findTransactionResult(block, txnHash);
+          if (result) return { ...result, blockHeight: height };
+          height += 1n;
+          if (Date.now() <= deadline) continue;
+        }
+        if (Date.now() + pollIntervalMs > deadline) throw timeoutError();
+        await sleep(pollIntervalMs, signal);
       }
-      if (block && (!options.verifyFinalizedBlock || await options.verifyFinalizedBlock(block))) {
-        const result = findTransactionResult(block, txnHash);
-        if (result) return { ...result, blockHeight: height };
-        height += 1n;
-        if (Date.now() <= deadline) continue;
-      }
-      if (Date.now() + pollIntervalMs > deadline) {
-        throw new Error(`Timed out after ${timeoutMs} ms waiting for transaction ${txnHash} (searched up to height ${height - 1n})`);
-      }
-      await sleep(pollIntervalMs, options.signal);
+    } catch (error) {
+      signal.throwIfAborted();
+      throw error;
+    } finally {
+      clearTimeout(timer);
+      options.signal?.removeEventListener('abort', onAbort);
     }
   }
 
@@ -781,7 +825,12 @@ export class KalvoraQueryClient {
           firstPage ??= page;
           voters.push(...page.voters);
           if (voters.length > 1000) throw new Error('Proposal electorate exceeds 1000 voters');
-          if (!page.hasMore) return { firstPage, voters };
+          if (!page.hasMore) {
+            if (firstPage.granular && voters.length !== firstPage.granular.whitelistSize) {
+              throw new Error('Granular voter count disagrees with the proposal whitelist size');
+            }
+            return { firstPage, voters };
+          }
           if (!page.voters.length || page.nextVoterOffset !== voters.length) throw new Error('Invalid next voter offset');
           voterOffset = page.nextVoterOffset;
         }

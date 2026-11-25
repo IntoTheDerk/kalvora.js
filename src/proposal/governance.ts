@@ -33,6 +33,7 @@ import { governanceChildSchema } from '../sign/resources.js';
 
 import {
   assertBasisPoints,
+  supportsCouncilReviews,
   validateCouncilStage,
   assertGovernanceProposalShape,
   type GovernanceOptionInput
@@ -99,9 +100,13 @@ function assertProposalWindow(input: GovernanceProposalInput, expectedAcceptance
     if (!hasStart || !hasEnd) {
       throw new Error('adaptive governance requires startTimestamp and endTimestamp');
     }
-    if (!Number.isFinite(input.startTimestamp?.getTime()) || !Number.isFinite(input.endTimestamp?.getTime()) ||
-        Math.floor((input.startTimestamp as Date).getTime() / 1000) >= Math.floor((input.endTimestamp as Date).getTime() / 1000)) {
+    const start = Math.floor((input.startTimestamp as Date).getTime() / 1000);
+    const end = Math.floor((input.endTimestamp as Date).getTime() / 1000);
+    if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) {
       throw new Error('startTimestamp must be earlier than endTimestamp');
+    }
+    if (end > Math.floor(expectedAcceptance.getTime() / 1000) + 90 * 86400) {
+      throw new Error('Adaptive proposals must end within 90 days after acceptance');
     }
     return;
   }
@@ -124,7 +129,9 @@ function councilStepCount(input: GovernanceProposalInput): number {
     if (!Number.isInteger(mandatory) || mandatory < 0 || count > 32) throw new Error('At most 32 councils per phase');
     total += count;
   }
-  if (total && input.granular) throw new Error('Granular proposals have no councils');
+  if (config && (total || config.allowProposalCouncils) && !supportsCouncilReviews(config.type)) {
+    throw new Error('Council reviews require staged, cycle, or staggered governance');
+  }
   return total;
 }
 

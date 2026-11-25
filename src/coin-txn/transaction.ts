@@ -39,12 +39,12 @@ import type {
   PublicKey
 } from '../../proto/generated/txn_pb.js';
 import { getNonces } from '../api/handler/nonce/service.js';
-import { generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
+import { decodeRecipientAddress, generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
 import { UniversalFeeCalculator, type BaseFeeCalculationDetails, type FeeConfig, type FeeConfigHelper } from '../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
 import { signerPublicKey } from '../shared/tx/base.js';
-import { validateExactAmountBalance, Decimal } from '../shared/utils/amount-utils.js';
+import { Decimal } from '../shared/utils/amount-utils.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { getTokenInfo, type TokenInfo, normalizeContractId } from '../shared/utils/token-info.js';
 import { toSmallestUnits } from '../shared/utils/unified-amount-conversion.js';
@@ -113,27 +113,14 @@ function validateTransactionRequirements(
   }
 }
 
-function validateTransactionBalance(
-  inputs: CoinTXNBuildInput[],
-  outputs: { to: string; amount: AmountInput; memo?: string }[],
-  contractId: string,
-  tokenInfoMap: Map<string, TokenInfo>
-): void {
-  const mainTokenInfo = tokenInfoMap.get(contractId);
-  const inputAmounts = inputs.map(i => {
-    if (i.amount === undefined) {
-      throw new Error(`Input at index ${inputs.indexOf(i)} must have a defined amount`);
-    }
-    return toSmallestUnits(i.amount, contractId, mainTokenInfo?.denomination
-      ? { denomination: mainTokenInfo.denomination }
-      : {}
-    );
-  });
-  const outputAmounts = outputs.map(o => toSmallestUnits(o.amount, contractId, mainTokenInfo?.denomination
-    ? { denomination: mainTokenInfo.denomination }
-    : {}
-  ));
-  validateExactAmountBalance(inputAmounts, outputAmounts);
+function totalParts(transfers: readonly { amount: string }[]): bigint {
+  let total = 0n;
+  for (const { amount } of transfers) {
+    if (!/^\d+$/u.test(amount)) throw new Error('Transfer amounts must be unsigned parts');
+    total += BigInt(amount);
+    if (total >= 1n << 256n) throw new Error('Total transfer amount must fit in uint256');
+  }
+  return total;
 }
 
 function validateFeePercentages(inputTransfers: InputTransfers[]): void {
@@ -261,7 +248,7 @@ async function processUnsignedInputs(
     : null;
 
   const finalAllowanceAddresses = allowanceAddresses.length > 0
-    ? allowanceAddresses.map(addr => sanitizeAndDecodeAddress(addr))
+    ? allowanceAddresses.map(addr => publicKeys[0]?.walletAddress ? decodeRecipientAddress(addr) : sanitizeAndDecodeAddress(addr))
     : null;
 
   return { publicKeys, inputTransfers, nonces, allowanceAddresses: finalAllowanceAddresses, allowanceNonces };
@@ -278,12 +265,9 @@ function processOutputs(
       ? { denomination: outputTokenInfo.denomination }
       : {}
     );
-    const data: { walletAddress: Uint8Array; amount?: string; memo?: string } = {
-      walletAddress: new Uint8Array(sanitizeAndDecodeAddress(output.to))
+    const data: { walletAddress: Uint8Array; amount: string; memo?: string } = {
+      walletAddress: decodeRecipientAddress(output.to, true), amount: finalAmount
     };
-    if (finalAmount && finalAmount !== '0') {
-      data.amount = finalAmount;
-    }
     if (output.memo && output.memo.trim() !== '') {
       data.memo = output.memo;
     }
@@ -396,14 +380,8 @@ export async function buildCoinTXN(
     inputsCopy, normalizedContractId, tokenInfoMap, grpcConfig
   );
 
-  // Filter inputs for validation (remove allowance authorizers)
-  const validationInputs = allowanceAddresses && allowanceAddresses.length > 0
-    ? inputsCopy.slice(1)
-    : inputsCopy;
-
   const outputTransfers = processOutputs(outputs, tokenInfoMap, normalizedContractId);
-
-  validateTransactionBalance(validationInputs, outputs, normalizedContractId, tokenInfoMap);
+  if (totalParts(inputTransfers) !== totalParts(outputTransfers)) throw new Error('Amount mismatch in coin transaction');
   validateFeePercentages(inputTransfers);
 
   // Build unsigned transaction

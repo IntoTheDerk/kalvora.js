@@ -29,6 +29,15 @@ function baseInput(overrides: Partial<ExpenseRatioInput> = {}): ExpenseRatioInpu
 }
 
 describe('buildExpenseRatioTXN', () => {
+  it('permits the burn payout but requires normal wallets as payers', async () => {
+    const txn = await buildExpenseRatioTXN(baseInput({ outputAddress: 'W5jE3KNH' }), OPTIONS);
+    expect(bs58.encode(txn.outputAddress)).toBe('W5jE3KNH');
+    await expect(buildExpenseRatioTXN(baseInput({ addresses: ['W5jE3KNH'] }), OPTIONS)).rejects.toThrow('addresses[0]');
+  });
+  it('preserves an empty payout when there are no payer wallets', async () => {
+    const txn = await buildExpenseRatioTXN({ publicKey: alice.publicKey, contractId: baseInput().contractId, addresses: [] }, OPTIONS);
+    expect(txn.outputAddress).toHaveLength(0);
+  });
   it('maps contract, holder addresses and output address', async () => {
     const txn = await buildExpenseRatioTXN(baseInput(), OPTIONS);
 
@@ -54,8 +63,7 @@ describe('buildExpenseRatioTXN', () => {
 
   describe('validation', () => {
     it.each<[string, Partial<ExpenseRatioInput>, RegExp]>([
-      ['empty addresses', { addresses: [] }, /addresses must be a non-empty array/],
-      ['non-array addresses', { addresses: bob.address as unknown as string[] }, /addresses must be a non-empty array/],
+      ['non-array addresses', { addresses: bob.address as unknown as string[] }, /addresses must be an array/],
       ['duplicate addresses', { addresses: [bob.address, charlie.address, bob.address] }, /addresses\[2\] duplicates/],
       ['invalid holder address', { addresses: [bob.address, '0OIl'] }, /addresses\[1\] is not a valid base58/],
       ['empty holder address', { addresses: [''] }, /addresses\[0\] must be a non-empty/],

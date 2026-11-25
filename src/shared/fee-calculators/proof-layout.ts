@@ -4,6 +4,7 @@ import bs58 from 'bs58';
 import { FeePayerSchema, WalletWitnessSchema, type FalconVariant, type PublicKey } from '../../../proto/generated/txn_pb.js';
 import { getSchemaForTypeName } from '../../adapter/serialization.js';
 import { createValidatorAPIClient } from '../../grpc/api/validator-api-client.js';
+import { allowsFeePayer } from '../../sign/resources.js';
 import type { GRPCConfig } from '../../types/index.js';
 import { getKeyTypeFromPublicKey, getPublicKeyIdentifierFromBytes } from '../crypto/address-utils.js';
 import { decodeWalletAddress, falconSignatureSize } from '../crypto/falcon-address.js';
@@ -61,6 +62,8 @@ export async function signedFeeTemplate(txn: TransactionMessage, layout: ProofLa
     else delete base.signature;
     if (layout.sponsor) {
       const { address, nonce, variant } = layout.sponsor;
+      if (!allowsFeePayer(copy.$typeName) || !base.publicKey?.walletAddress || bs58.encode(base.publicKey.walletAddress) === address ||
+          nonce <= 0n || nonce > 0xffffffffffffffffn) throw new Error('Invalid sponsor for the fee quote');
       base.feePayer = create(FeePayerSchema, { publicKey: { walletAddress: decodeWalletAddress(address) }, nonce,
         signature: new Uint8Array(falconSignatureSize(variant)) });
     }

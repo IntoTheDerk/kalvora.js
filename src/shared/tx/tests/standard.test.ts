@@ -97,6 +97,17 @@ describe('parseAddress', () => {
   it('rejects non-base58 characters', () => {
     expect(() => parseAddress('0OIl')).toThrow(/^address is not a valid base58 address: /u);
   });
+
+  it('checks raw wallet widths and padding and permits the burn recipient only when requested', () => {
+    const wide = new Uint8Array(1126);
+    wide[1125] = 128;
+    expect(parseAddress(bs58.encode(wide))).toEqual(wide);
+    wide[1125] = 1;
+    expect(() => parseAddress(bs58.encode(wide))).toThrow('padding');
+    expect(() => parseAddress('1'.repeat(31))).toThrow('length');
+    expect(() => parseAddress('W5jE3KNH')).toThrow();
+    expect(parseAddress('W5jE3KNH', 'outputAddress', true)).toEqual(new TextEncoder().encode(':fire:'));
+  });
 });
 
 describe('parseHash32', () => {
@@ -338,7 +349,8 @@ describe('buildStandardTransaction', () => {
     ['abc', /feeAmountParts must be a non-negative integer amount/],
     ['1.5', /feeAmountParts must be a non-negative integer amount/],
     ['-1', /feeAmountParts must be a non-negative integer amount/],
-    ['0', /feeAmountParts must be greater than zero/]
+    ['0', /feeAmountParts must be greater than zero/],
+    [(1n << 256n).toString(), /feeAmountParts must be a decimal uint256/]
   ])('rejects feeAmountParts %j', async (feeAmountParts, message) => {
     await expect(buildRevoke({ ...OFFLINE, feeAmountParts })).rejects.toThrow(message);
   });

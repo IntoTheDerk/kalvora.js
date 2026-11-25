@@ -6,7 +6,7 @@ import { APIService } from '../../../proto/generated/kal_api_pb.js';
 import { NonceRequestSchema, TokenFeeInfoRequestSchema, BalanceRequestSchema, BaseFeeRequestSchema } from '../../../proto/generated/kal_api_pb.js';
 import type { PublicKey } from '../../../proto/generated/txn_pb.js';
 import { PublicKeySchema, TRANSACTION_TYPE } from '../../../proto/generated/txn_pb.js';
-import { sanitizeAndDecodeAddress } from '../../shared/crypto/address-utils.js';
+import { decodeBalanceNonceAddress } from '../../query/keys.js';
 import { decodeWalletAddress, isWalletAddressBytes } from '../../shared/crypto/falcon-address.js';
 import type { GRPCConfig } from '../../types/index.js';
 import { createClient } from '../client-factory.js';
@@ -64,7 +64,7 @@ class ValidatorAPIClientImpl implements ValidatorAPIClient {
    */
   async getNonce(address: string): Promise<NonceResponse> {
     const request = create(NonceRequestSchema, {
-      walletAddress: new Uint8Array(sanitizeAndDecodeAddress(address)),
+      walletAddress: decodeBalanceNonceAddress(address),
       encoded: false
     });
     return this.client.nonce(request);
@@ -85,7 +85,7 @@ class ValidatorAPIClientImpl implements ValidatorAPIClient {
    */
   async getBalance(address: string, contractId: string): Promise<BalanceResponse> {
     const request = create(BalanceRequestSchema, {
-      walletAddress: new Uint8Array(sanitizeAndDecodeAddress(address)),
+      walletAddress: decodeBalanceNonceAddress(address),
       contractId: contractId,
       encoded: false
     });

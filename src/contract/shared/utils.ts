@@ -2,11 +2,14 @@
  * Shared utilities for contract operations
  */
 
-import { GOVERNANCE_TYPE, type Governance, type RestrictedKey } from '../../../proto/generated/txn_pb.js';
+import bs58 from 'bs58';
+
+import { GOVERNANCE_TYPE, type ContractFees, type Governance, type PreMintWallet, type RestrictedKey } from '../../../proto/generated/txn_pb.js';
 import { validateGovernanceSettings } from '../../proposal/shape.js';
 import { isCanonicalContractId } from '../../protocol/contract-id.js';
-import { generateAddressFromPublicKey } from '../../shared/crypto/address-utils.js';
+import { generateAddressFromPublicKey, isPaymentRecipientBytes } from '../../shared/crypto/address-utils.js';
 import { isWalletAddressBytes } from '../../shared/crypto/falcon-address.js';
+import { parseUint256 } from '../../shared/tx/standard.js';
 import { toSmallestUnits } from '../../shared/utils/unified-amount-conversion.js';
 import { isValidContractId } from '../../shared/utils/validation.js';
 import type { SigningKey } from '../../sign/builder.js';
@@ -22,6 +25,8 @@ const TOKEN_NAME = /^[A-Za-z0-9 ]{3,200}$/u;
 export function validateCurrentContractFields(options: {
   restrictedKeys?: readonly RestrictedKey[];
   governance?: Governance;
+  contractId?: string;
+  contractFees?: ContractFees;
 }): void {
   if ('quashThreshold' in options) {
     throw new Error('quashThreshold is retired and must not be supplied');
@@ -30,6 +35,7 @@ export function validateCurrentContractFields(options: {
   if (keys.length > 50) throw new Error('restrictedKeys cannot exceed 50');
   let parents = 0;
   let directRecovery = false;
+  const directAuthorities = new Set<string>();
   for (const key of keys) {
     for (const field of ['timeDelay', 'global', 'quash']) {
       if (field in key) {
@@ -42,22 +48,33 @@ export function validateCurrentContractFields(options: {
       throw new Error('Each restricted key must have exactly one typed authority and no witnesses');
     }
     if (id.walletAddress !== undefined && !isWalletAddressBytes(id.walletAddress)) throw new Error('Invalid grant wallet address');
-    if (id.governanceAuth !== undefined) {
-      const name = new TextDecoder().decode(id.governanceAuth);
-      if (!name.startsWith('gov_') || !isCanonicalContractId(name.slice(4))) throw new Error('Invalid governance authority');
-    }
-    if (id.smartContractAuth !== undefined && !/^sc_[A-Za-z0-9_]+_(?:0|[1-9][0-9]*)$/u.test(new TextDecoder().decode(id.smartContractAuth))) {
-      throw new Error('Invalid smart contract authority');
-    }
     if (id.parentContract !== undefined) {
       if (!isCanonicalContractId(id.parentContract)) throw new Error('Invalid parent contract ID');
+      if (id.parentContract === options.contractId) throw new Error('A contract cannot be its own parent');
       parents++;
-    } else if (key.updateContract) {
-      directRecovery = true;
+      continue;
     }
+    let authority: string;
+    if (id.walletAddress !== undefined) {
+      authority = `wallet:${bs58.encode(id.walletAddress)}`;
+    } else if (id.governanceAuth !== undefined) {
+      authority = new TextDecoder().decode(id.governanceAuth);
+      if (!authority.startsWith('gov_') || !isCanonicalContractId(authority.slice(4))) throw new Error('Invalid governance authority');
+    } else {
+      authority = new TextDecoder().decode(id.smartContractAuth);
+      if (!/^sc_[A-Za-z0-9_]+_(?:0|[1-9][0-9]*)$/u.test(authority)) throw new Error('Invalid smart contract authority');
+    }
+    if (directAuthorities.has(authority)) throw new Error('Duplicate direct grant authority');
+    directAuthorities.add(authority);
+    if (key.updateContract) directRecovery = true;
   }
   if (parents > 1) throw new Error('Only one parent contract is allowed');
   if (parents && !directRecovery) throw new Error('An inherited grant requires a direct update_contract recovery grant');
+  const fees = options.contractFees;
+  if (fees && Number(fees.burn) !== 100 && Number(fees.validator) !== 100 &&
+      (!fees.feeAddress || !isPaymentRecipientBytes(fees.feeAddress))) {
+    throw new Error('The contract fee recipient must be a wallet address or the burn address');
+  }
   if (options.governance?.type === GOVERNANCE_TYPE.REMOVE) {
     throw new Error('Governance REMOVE is disabled by the current network consensus policy');
   }
@@ -142,7 +159,8 @@ export function validateKeyPair(options: {
  */
 export function validatePremintWallets(options: {
   contractType: unknown;
-  premintWallets?: unknown[];
+  premintWallets?: PreMintWallet[];
+  maxSupply?: string;
 }): void {
   if (options.premintWallets && options.premintWallets.length > 0) {
     // Check if contract type is TOKEN (0)
@@ -158,6 +176,18 @@ export function validatePremintWallets(options: {
         `Current contract type is ${typeName} (${options.contractType}). ` +
         'Please remove premintWallets or change contract type to TOKEN.'
       );
+    }
+    if (options.maxSupply !== undefined) {
+      const addresses = new Set<string>();
+      let total = 0n;
+      for (const premint of options.premintWallets) {
+        if (!isWalletAddressBytes(premint.address)) throw new Error('Invalid premint wallet address');
+        const address = bs58.encode(premint.address);
+        if (addresses.has(address)) throw new Error('Duplicate premint wallet address');
+        addresses.add(address);
+        total += BigInt(parseUint256(premint.amount, 'premint amount'));
+      }
+      if (total > BigInt(options.maxSupply)) throw new Error('Premint amounts exceed maxSupply');
     }
   }
 }

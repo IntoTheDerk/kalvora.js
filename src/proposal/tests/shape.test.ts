@@ -153,4 +153,32 @@ describe('governance proposal shape', () => {
       }
     }, { nonce: 1, feeAmountParts: '10' })).rejects.toThrow(/startTimestamp/);
   });
+
+  it('bounds adaptive deadlines from expected acceptance even for a future start', async () => {
+    const now = new Date('2026-11-25T00:00:00Z');
+    const options = { nonce: 1, feeAmountParts: '10', timestamp: now };
+    const cutoff = now.getTime() + 90 * 86400000;
+    const input = {
+      contractId: GENESIS_CONTRACT_IDS.KALV, publicKey: ED25519_TEST_KEYS.alice.publicKey,
+      title: 'Title', synopsis: 'Summary', body: 'Proposal text',
+      governance: { type: GOVERNANCE_TYPE.ADAPTIVE, allowMulti: false, stageLengthCount: 0 },
+      startTimestamp: new Date(cutoff - 86400000), endTimestamp: new Date(cutoff)
+    };
+    expect((await buildGovernanceProposalTXN(input, options)).endTimestamp?.seconds).toBe(BigInt(cutoff / 1000));
+    await expect(buildGovernanceProposalTXN({ ...input, endTimestamp: new Date(cutoff + 1000) }, options)).rejects.toThrow(/90 days/u);
+    await expect(buildGovernanceProposalTXN({ ...input, governance: { ...input.governance, postGovernanceStageCount: 1 } }, options))
+      .rejects.toThrow(/Council reviews/u);
+  });
+
+  it('limits mandatory and optional council reviews to the three contract-calendar types', () => {
+    const stage = { votingInstrument: GENESIS_CONTRACT_IDS.KALV, days: 1, threshold: 1, regularQuorum: 1 };
+    for (const field of [{ preGovernance: stage }, { preGovernanceStages: [stage] }, { postGovernanceStages: [stage] }, { allowProposalCouncils: true }]) {
+      for (const type of [GOVERNANCE_TYPE.ADAPTIVE, GOVERNANCE_TYPE.GRANULAR, GOVERNANCE_TYPE.REMOVE]) {
+        expect(() => validateGovernanceSettings(create(GovernanceSchema, { type, ...field }))).toThrow(/Council reviews/u);
+      }
+      for (const type of [GOVERNANCE_TYPE.STAGED, GOVERNANCE_TYPE.CYCLE, GOVERNANCE_TYPE.STAGGERED]) {
+        validateGovernanceSettings(create(GovernanceSchema, { type, ...field }));
+      }
+    }
+  });
 });

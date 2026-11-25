@@ -2,7 +2,7 @@ import { create } from '@bufbuild/protobuf';
 import { describe, expect, it } from 'vitest';
 
 import { TokenFeeInfoSchema } from '../../../../proto/generated/kal_api_pb.js';
-import { CoinTXNSchema, CONTRACT_FEE_TYPE } from '../../../../proto/generated/txn_pb.js';
+import { CoinTXNSchema, CONTRACT_FEE_TYPE, SmartContractExecuteTXNSchema } from '../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../network/constants.js';
 import type { TokenInfo } from '../../utils/token-info.js';
 import { UniversalFeeCalculator } from '../universal-fee-calculator.js';
@@ -11,6 +11,8 @@ const SOURCE = KALVORA_NATIVE_TOKEN;
 const PAYMENT = 'PREDNmAbR9Juj233WUQ6kqFGf28oe5kVAK5Y3mhGfE6cVBF95';
 
 interface QuoteOptions {
+  type?: CONTRACT_FEE_TYPE;
+  allowed?: string[];
   amount?: string;
   fraction?: string;
   payment?: string;
@@ -35,9 +37,9 @@ async function quote(options: QuoteOptions = {}): Promise<string | undefined> {
       rate: options.sourceRate ?? '1000000000000000000',
       authorized: true,
       contractFees: {
-        contractFeeType: CONTRACT_FEE_TYPE.PERCENTAGE,
+        contractFeeType: options.type ?? CONTRACT_FEE_TYPE.PERCENTAGE,
         fee: options.fraction ?? '10000000000000000',
-        allowedFeeInstrument: [SOURCE, PAYMENT]
+        allowedFeeInstrument: options.allowed ?? [SOURCE, PAYMENT]
       }
     })],
     [PAYMENT, create(TokenFeeInfoSchema, {
@@ -116,4 +118,31 @@ describe('Coin percentage contract fee quotes', () => {
     await expect(quote({ amount: ((1n << 256n) - 1n).toString(), fraction: '1000000000000000000', overestimatePercent: 5 }))
       .rejects.toThrow('Percentage contract fee cap must fit in uint256');
   });
+});
+
+describe('Coin fixed and currency-equivalent contract fees', () => {
+  it('denominates a fixed fee in the first allowed asset with exact integer conversion', async () => {
+    const rules = { type: CONTRACT_FEE_TYPE.FIXED, allowed: [PAYMENT, SOURCE], fraction: '20',
+      sourceRate: '2', sourceDenomination: '3', paymentRate: '5', paymentDenomination: '7' };
+    expect(await quote(rules)).toBe('21');
+    expect(await quote({ ...rules, payment: PAYMENT, paymentRate: '' })).toBe('20');
+    expect(await quote({ ...rules, allowed: ['ANY', SOURCE, PAYMENT], payment: PAYMENT })).toBe('18');
+  });
+
+  it('rejects disallowed payments and a positive fee that converts below one part', async () => {
+    await expect(quote({ type: CONTRACT_FEE_TYPE.FIXED, allowed: [SOURCE], payment: PAYMENT })).rejects.toThrow('not allowed');
+    await expect(quote({ type: CONTRACT_FEE_TYPE.CUR_EQUIVALENT, fraction: '1' })).rejects.toThrow('cannot be paid');
+    expect(await quote({ type: CONTRACT_FEE_TYPE.CUR_EQUIVALENT, fraction: '0', sourceRate: '' })).toBe('0');
+  });
+});
+
+it('rounds gas to the next fee-token part and adds it exactly to a large signed cap', async () => {
+  const cap = 10n ** 64n;
+  const token = create(TokenFeeInfoSchema, { contractId: PAYMENT, denomination: '7', rate: '2000000000000000000', authorized: true });
+  const txn = create(SmartContractExecuteTXNSchema, { base: { feeId: PAYMENT } });
+  await UniversalFeeCalculator.calculateFee({
+    protoObject: txn, tokenInfoMap: new Map([[PAYMENT, token]]), baseFeeId: PAYMENT, baseFeeParts: cap.toString(),
+    gasFeeInUsd: 0.4, nonNativeMultiplier: 3
+  });
+  expect(txn.base?.feeAmount).toBe((cap + 5n).toString());
 });

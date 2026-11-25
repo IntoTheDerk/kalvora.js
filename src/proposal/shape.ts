@@ -23,13 +23,19 @@ export function validateCouncilStage(stage: Omit<PreGovernance, '$typeName'>): v
   assertBasisPoints(stage.regularQuorum, 'council regularQuorum');
 }
 
+/** Only contract-calendar governance types support council reviews. */
+export function supportsCouncilReviews(type: GOVERNANCE_TYPE): boolean {
+  return type === GOVERNANCE_TYPE.STAGED || type === GOVERNANCE_TYPE.CYCLE || type === GOVERNANCE_TYPE.STAGGERED;
+}
+
 /** Validate ratios and council configuration at contract creation or update. */
 export function validateGovernanceSettings(governance: Governance): void {
   const { votingInstrument, votingRatio, preGovernance, preGovernanceStages, postGovernanceStages } = governance;
   if (preGovernance && preGovernanceStages.length) throw new Error('Set either singleton or array PRE councils');
   if (preGovernanceStages.length > 32 || postGovernanceStages.length > 32) throw new Error('At most 32 councils per phase');
-  if (governance.type === GOVERNANCE_TYPE.GRANULAR && (preGovernance || preGovernanceStages.length ||
-      postGovernanceStages.length || governance.allowProposalCouncils || votingInstrument.length || votingRatio.length ||
+  if ((preGovernance || preGovernanceStages.length || postGovernanceStages.length || governance.allowProposalCouncils) &&
+      !supportsCouncilReviews(governance.type)) throw new Error('Council reviews require staged, cycle, or staggered governance');
+  if (governance.type === GOVERNANCE_TYPE.GRANULAR && (votingInstrument.length || votingRatio.length ||
       governance.regularQuorum || governance.threshold || governance.stageLength.length || governance.startTimestamp ||
       governance.votingPeriod !== undefined || governance.proposalPeriod !== undefined || governance.maxApproved !== undefined ||
       governance.chickenDinner !== undefined)) throw new Error('Granular governance uses proposal-specific rules and no councils');

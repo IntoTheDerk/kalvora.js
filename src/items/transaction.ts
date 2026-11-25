@@ -29,13 +29,13 @@ import type {
 import { validateKeyPair } from '../contract/shared/utils.js';
 import { submitTransaction } from '../grpc/transaction/transaction-client.js';
 import { createQueryClient } from '../query/api-client.js';
-import { generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
+import { generateAddressFromPublicKey, isPaymentRecipientBytes } from '../shared/crypto/address-utils.js';
 import type { ProofLayout } from '../shared/fee-calculators/proof-layout.js';
 import { UniversalFeeCalculator, type FeeConfigHelper } from '../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../shared/tx/base.js';
-import { parseUint256 } from '../shared/tx/standard.js';
+import { parseAddress, parseUint256 } from '../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { isValidContractId } from '../shared/utils/validation.js';
 import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
@@ -273,9 +273,14 @@ function buildItemContractFees(fees: ItemContractFees | ItemContractFeesInput | 
 
   const inputFeeAddress = fees.feeAddress;
   if (typeof inputFeeAddress === 'string') {
-    feeData.feeAddress = sanitizeAndDecodeAddress(inputFeeAddress);
+    feeData.feeAddress = parseAddress(inputFeeAddress, 'contractFees.feeAddress', true);
   } else if (inputFeeAddress instanceof Uint8Array) {
+    if (inputFeeAddress.length && !isPaymentRecipientBytes(inputFeeAddress)) throw new Error('Invalid contractFees.feeAddress');
     feeData.feeAddress = inputFeeAddress;
+  }
+  if (parseUint256(fees.fee, 'contractFees.fee') !== '0' &&
+      Number(fees.burn) !== 100 && Number(fees.validator) !== 100 && !feeData.feeAddress?.length) {
+    throw new Error('contractFees.feeAddress is required for the item fee payout');
   }
 
   if (fees.allowedFeeInstrument?.length) {
@@ -310,7 +315,7 @@ export async function buildItemizedMintTXN(
   if (!options.recipientAddress) throw new Error('recipientAddress is required');
   if (options.votingWeight !== undefined) parseUint256(options.votingWeight, 'votingWeight', false);
 
-  const recipientAddress = sanitizeAndDecodeAddress(options.recipientAddress);
+  const recipientAddress = parseAddress(options.recipientAddress, 'recipientAddress');
   const base = await buildBaseForItemTXN('buildItemizedMintTXN', options.publicKeyBase58Identifier, options);
   if (options.safeSend !== undefined) {
     if (typeof options.safeSend !== 'boolean') throw new Error('safeSend must be a boolean');
@@ -420,7 +425,7 @@ export async function buildNFTTXN(
     }
   }
 
-  const recipientAddress = sanitizeAndDecodeAddress(options.recipientAddress);
+  const recipientAddress = parseAddress(options.recipientAddress, 'recipientAddress');
   const base = await buildBaseForItemTXN('buildNFTTXN', options.publicKeyBase58Identifier, options);
 
   const nftData: Record<string, unknown> = {

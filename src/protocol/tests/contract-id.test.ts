@@ -46,6 +46,15 @@ describe('genesis contract IDs', () => {
 });
 
 describe('ordinary contract IDs', () => {
+  it('rejects imprecise numeric nonces and mismatched internal authority algorithms', () => {
+    expect(() => deriveGenesisContractId(Number.MAX_SAFE_INTEGER + 1)).toThrow('Use bigint');
+    expect(() => deriveOrdinaryContractId({
+      creatorAuthorizationType: CREATOR_AUTHORIZATION.GOVERNANCE,
+      creatorKeyAlgorithm: CREATOR_KEY_ALGORITHM.ED25519,
+      creatorAuthorizationBytes: new TextEncoder().encode(`gov_${GENESIS_CONTRACT_IDS.KALV}`),
+      vanityNonce: 0n, contractDataHash: new Uint8Array(32)
+    })).toThrow('algorithm zero');
+  });
   it.each(contractVectors.vectors)('matches the validator vector $name', vector => {
     const result = vector.kind === 'native' ? deriveGenesisContractId(vector.vanity_nonce) : deriveOrdinaryContractId({
       creatorAuthorizationType: vector.creator_authorization_type!,

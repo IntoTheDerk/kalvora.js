@@ -40,6 +40,9 @@ describe('createClient request paths', () => {
 
   it.each([
     ['APIService.Nonce', `${ENDPOINT}/api/Nonce`],
+    ['APIService.GetSigningWallet', `${ENDPOINT}/api/GetSigningWallet`],
+    ['APIService.ProposalDetail', `${ENDPOINT}/api/ProposalDetail`],
+    ['TXNService.RegisterWallet', `${ENDPOINT}/txn/RegisterWallet`],
     ['TXNService.Coin', `${ENDPOINT}/txn/Coin`],
     ['ValidatorService.Nonce', `${ENDPOINT}/validator/Nonce`],
     ['GuardianService.GetPayload', `${ENDPOINT}/guardian/GetPayload`]
@@ -48,6 +51,9 @@ describe('createClient request paths', () => {
     const config = { endpoint: ENDPOINT, fetch };
     const call: Record<string, () => Promise<unknown>> = {
       'APIService.Nonce': () => createClient(APIService, config).nonce(create(NonceRequestSchema, {})),
+      'APIService.GetSigningWallet': () => createClient(APIService, config).getSigningWallet({}),
+      'APIService.ProposalDetail': () => createClient(APIService, config).proposalDetail({}),
+      'TXNService.RegisterWallet': () => createClient(TXNService, config).registerWallet({}),
       'TXNService.Coin': () => createClient(TXNService, config).coin(create(CoinTXNSchema, {})),
       'ValidatorService.Nonce': () =>
         createClient(ValidatorService, config).nonce(create(ValidatorNonceRequestSchema, {})),
@@ -56,5 +62,14 @@ describe('createClient request paths', () => {
     };
     await expect(call[method]!()).rejects.toThrow();
     expect(urls).toEqual([expected]);
+  });
+
+  it('ends a stalled submission at the configured deadline without a fallback submission', async () => {
+    const fetch = vi.fn<typeof globalThis.fetch>((_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }));
+    const client = createClient(TXNService, { endpoint: 'https://localhost', fallbackToHttp: true, timeout: 50, fetch });
+    await expect(client.registerWallet({})).rejects.toMatchObject({ codeName: 'DEADLINE_EXCEEDED' });
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

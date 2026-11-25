@@ -99,7 +99,7 @@ function parsePriority(value: unknown, field: string): number {
 }
 
 function signerAddressOf(publicKey: unknown): string | undefined {
-  if (typeof publicKey !== 'string' || !publicKey.includes('_')) return undefined;
+  if (typeof publicKey !== 'string') return undefined;
   try {
     return generateAddressFromPublicKey(publicKey);
   } catch {

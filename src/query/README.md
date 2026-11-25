@@ -90,6 +90,18 @@ A terminal group marker covers the reported number of children with one digest.
 It carries no child receipt. `acceptedVotingRatio` holds the accepted proposal's
 frozen ratios, and status 45 can include charged compute in `gas`.
 
+Protocol 35 (validator build 200032) can process successive governance closing
+steps in one certified block. A queue that exhausts the block allowance resumes
+at a later height. Consume every `proposalResultTxns` and
+`governanceChildOutcomes` entry in the committed block and use `ProposalDetail`
+for the current phase. Polling can skip intermediate closing states. These same
+reads work with a separately pinned protocol 33 chain.
+
+Balance and nonce reads accept canonical wallet addresses of all six supported
+widths, the burn account (`W5jE3KNH`), and proposal escrow (Base58 of ASCII
+`p_` followed by the raw 32-byte proposal ID). Items and signing-wallet lookups
+require a canonical wallet identity.
+
 `validator.syncValidatorList(operator)` returns each validator's liveness times
 as separate bigint Unix seconds. `lastHeartbeatTimeSeconds` advances after an
 accepted heartbeat or produced block. `lastSignedHeartbeatTimeSeconds` tracks

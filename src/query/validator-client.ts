@@ -38,12 +38,13 @@ import {
 } from '../../proto/generated/validator_pb.js';
 import { createClient } from '../grpc/client-factory.js';
 import { signerPublicKey } from '../shared/tx/base.js';
-import { parseAddress, requireContractId, toTimestampInit } from '../shared/tx/standard.js';
+import { requireContractId, toTimestampInit } from '../shared/tx/standard.js';
 import { bytesToHex } from '../shared/utils/byte-utils.js';
 import type { KalvoraSigner } from '../sign/signer.js';
 import type { GRPCConfig } from '../types/index.js';
 
 import { parseUintString } from './decoders.js';
+import { decodeBalanceNonceAddress } from './keys.js';
 
 /** Latest validator state checkpoint advertised by a node. */
 export interface CheckpointInfo {
@@ -89,7 +90,7 @@ export class ValidatorQueryClient {
    */
   async getNonce(address: string): Promise<bigint> {
     const response = await this.raw.nonce(create(NonceRequestSchema, {
-      walletAddress: parseAddress(address, 'address')
+      walletAddress: decodeBalanceNonceAddress(address)
     }));
     return response.nonce;
   }
@@ -97,7 +98,7 @@ export class ValidatorQueryClient {
   /** Balance (smallest units) of one token in a wallet, as seen by the validator. */
   async getBalance(address: string, contractId: string): Promise<bigint> {
     const response = await this.raw.balance(create(BalanceRequestSchema, {
-      walletAddress: parseAddress(address, 'address'),
+      walletAddress: decodeBalanceNonceAddress(address),
       contractId: requireContractId(contractId),
       encoded: false
     }));

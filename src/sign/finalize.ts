@@ -201,6 +201,7 @@ export function getSponsorSigningBytes<T extends Message & { base?: BaseTXN }>(t
   const hasUserSignature = txn.base?.signature?.length || txn.base?.publicKey?.witnesses.length || txn.base?.publicKey?.multi?.signatures.some(signature => signature.length > 0);
   const payer = txn.base?.feePayer;
   if (txn.base?.publicKey?.walletAddress) {
+    assertAuthenticationBudget(txn);
     const key = payer?.publicKey;
     if (!key?.walletAddress || key.single.length || key.multi || key.governanceAuth || key.smartContractAuth || key.parentContract !== undefined ||
         bs58.encode(key.walletAddress) === bs58.encode(txn.base.publicKey.walletAddress)) {
