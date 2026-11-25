@@ -7,6 +7,8 @@ release may change APIs; pin an exact version.
 
 ## [Unreleased]
 
+## [0.0.1-alpha.3] — prerelease
+
 ### Changed
 
 - Migrate fresh-genesis wallets to registered Falcon addresses. Derive the wire chain ID from the network name and final genesis hash. The SDK supports registrations, single-key and policy spends, sponsorship and two-role validator assignments.

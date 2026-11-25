@@ -57,6 +57,22 @@ For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts)
 | SDK validation | `npm run validate` passed type-checking and lint with zero warnings. The full offline run passed 1,252 tests and skipped six opt-in network tests. The separate gateway check above records the outcome of the five read-only cases. |
 | Package build | `npm run build` succeeded. `npm run build:validate-bundles` passed all 16 checks, including browser loading and parity across the 302 CommonJS and ESM exports. |
 
+## Testing the alpha.3 package in dev-client
+
+`0.0.1-alpha.3` follows the existing alpha series. To try the local package, run `npm pack` in the SDK checkout after `npm run validate` and `npm run build`. From the sibling `dev-client` directory, install the resulting file and check the loaded SDK version before starting Electron.
+
+```powershell
+npm install --no-save ../kalvora.js/kalvora.js-0.0.1-alpha.3.tgz
+node -p "require('kalvora.js').VERSION"
+npm run check
+```
+
+The local install lasts until dependencies are restored. After publication, `npm install --save-exact kalvora.js@0.0.1-alpha.3` pins the same version for teammates and CI. The release maintainer can publish the reviewed tarball with `npm publish ./kalvora.js-0.0.1-alpha.3.tgz --tag alpha`. Verify the channel with `npm view kalvora.js dist-tags --json` and compare `npm view kalvora.js@0.0.1-alpha.3 dist.integrity` with the integrity printed by `npm pack`.
+
+The `dev-client` checkout at `371221a` passed all 129 tests on alpha.2. With the alpha.3 tarball installed, ESLint and Windows x64 Electron packaging passed. The runtime suite passed 126 of 129 tests, including all eight mocked wallet and transaction tests. The client also implements its own Falcon registration and transfer signing, so these local tests cover only part of the SDK migration.
+
+Three client tests need updating. Two fixtures in `src/main/services/kal-signing.test.ts` use the installed SDK to construct legacy messages with the removed fields `SmartContractAllowance.unlimited` and `RestrictedKey.timeDelay`. Both fail TypeScript checking. At runtime the protobuf constructor drops those fields before the client can test their conversion. Preserve the old field values with a fixed legacy schema or fixture. The third test in `src/main/services/zera-client.test.ts` expects the literal version `0.0.1-alpha.2`.
+
 ## Remaining work
 
 | Owner | Action | Completion evidence |
@@ -65,4 +81,4 @@ For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts)
 | SDK and wallet teams | Rehearse zero-balance sponsored registration, mixed-variant policy spending, fee boundaries, safe send across H/H+1, wrong chain/type and timeout recovery. Exercise wide addresses through a deployed query and wallet adapter. | Finalized receipts, balances, registry and nonce observations for each scenario. |
 | Governance and validator operators | Rehearse a governance state change between voter pages, PRE/POST step zero, a grouped child terminal receipt, signed search responses and a dual-signed validator assignment. Use native KALV for that assignment after the validator registration fee policy is installed. | Verified page restarts, exact signed reply and receipt matches, and the finalized owner/operator record. |
 | Wallet integrators | Exercise real injected, deep-link and WalletConnect providers and the target React Native runtime. | Verified receiving address, backup recovery and both signature variants on the supported devices. |
-| Release maintainer | Review and merge the migration, select a release version and publish after the rehearsal. | Reviewed commit, release tag and published package. |
+| Release maintainer | Review and merge the alpha.3 release changes, tag the merge commit, create the GitHub release and publish the reviewed package under npm’s `alpha` tag. Use the rehearsal results to decide when to promote the release. | `kalvora.js@alpha` resolves to `0.0.1-alpha.3` and its registry integrity matches the tested tarball. |
