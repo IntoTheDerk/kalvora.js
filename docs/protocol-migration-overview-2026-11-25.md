@@ -73,6 +73,8 @@ The `dev-client` checkout at `371221a` passed all 129 tests on alpha.2. With the
 
 Three client tests need updating. Two fixtures in `src/main/services/kal-signing.test.ts` use the installed SDK to construct legacy messages with the removed fields `SmartContractAllowance.unlimited` and `RestrictedKey.timeDelay`. Both fail TypeScript checking. At runtime the protobuf constructor drops those fields before the client can test their conversion. Preserve the old field values with a fixed legacy schema or fixture. The third test in `src/main/services/zera-client.test.ts` expects the literal version `0.0.1-alpha.2`.
 
+In a temporary copy of the client, using the original alpha.2 descriptors for those fixtures and updating the expected SDK version restored a clean type-check, lint and all 129 tests. Applying these test changes to the dev-client repository remains open.
+
 ## Remaining work
 
 | Owner | Action | Completion evidence |
