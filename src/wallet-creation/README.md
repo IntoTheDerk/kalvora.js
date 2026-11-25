@@ -1,6 +1,30 @@
 # Wallet Creation
 
-This module handles wallet creation and key management for the Kalvora network with comprehensive HD wallet support, multiple key types, and advanced features.
+## Fresh-genesis wallets
+
+Use `FalconWallet` for new receiving addresses. Obtain the chain name and final block-zero hash from the operator through a trusted channel. The default wallet uses padded Falcon-512 and an explicit BLAKE3-256 address hash.
+
+```ts
+import { FalconWallet, FALCON_VARIANT, WALLET_HASH } from 'kalvora.js/wallet';
+
+const wallet = FalconWallet.generate({
+  networkName: 'kal_proto',
+  genesisHash: trustedFinalGenesisHashHex,
+  variant: FALCON_VARIANT.FALCON_1024,
+  walletHash: WALLET_HASH.SHA3_512
+});
+const receivingAddress = wallet.walletAddress;
+await protectedKeyStore.save(wallet.exportBackup());
+const restored = FalconWallet.restore(await protectedKeyStore.load());
+```
+
+`exportBackup()` returns an **unencrypted secret** with the variant, hash selection, chain name, genesis pin and receiving address. Store it in a protected key store. Restore derives the public key and checks the recorded address. Key generation and signing need a runtime with secure `crypto.getRandomValues`. Both variants have been exercised in Node and Microsoft Edge. Browser adapters can delegate key custody to a compatible wallet.
+
+Ordinary incoming payments can fund the address before registration. Submit its signed wallet registration, match the hash to a finalized receipt with an explicit successful status, and check the registered key. If registration finalizes at height H, spending, sponsoring, and safe-send eligibility begin at H+1. Track balances and nonces per selected address when one key uses several hashes.
+
+## Legacy Ed25519 and Ed448 wallets
+
+The HD and mnemonic APIs below restore earlier key formats. Existing holders need a fresh Falcon receiving address for the new genesis.
 
 ## What it does
 

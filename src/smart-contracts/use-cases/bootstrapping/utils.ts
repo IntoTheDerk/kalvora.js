@@ -8,6 +8,7 @@
 import type { SmartContractExecuteTXN } from '../../../../proto/generated/txn_pb.js';
 import { PROTONET_GRPC_CONFIG } from '../../../shared/utils/testing-defaults/index.js';
 import { toSmallestUnits } from '../../../shared/utils/unified-amount-conversion.js';
+import type { SigningKey } from '../../../sign/builder.js';
 import type { AmountInput } from '../../../types/index.js';
 import { createSmartContractExecuteTXN, ParamType, type ExecuteParameter } from '../../execute/index.js';
 
@@ -89,7 +90,7 @@ export async function createBootstrappingTransaction(
   actionName: string,
   parameterValue: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   feeId: string,
   options: BootstrappingOptions
 ): Promise<SmartContractExecuteTXN> {

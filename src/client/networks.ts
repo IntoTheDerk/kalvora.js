@@ -8,12 +8,16 @@
  * @module client/networks
  */
 
+import { deriveChainId, type ChainName } from '../shared/network/chain-id.js';
 import { KALVORA_NATIVE_TOKEN, KALVORA_PROTONET_NETWORK } from '../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
+import type { TransactionContext } from '../sign/context.js';
 import type { GRPCConfig } from '../types/index.js';
 
 /** Definition of a Kalvora network. */
 export interface KalvoraNetwork {
+  /** Trusted chain context for signing and submission, when pinned. */
+  transactionContext?: TransactionContext;
   /** Stable identifier, e.g. `kalvora:protonet` (also used as the CAIP-2-style chain id). */
   id: string;
   /** Human-readable name. */
@@ -45,6 +49,13 @@ export const KALVORA_NETWORKS = {
 
 /** Name of a built-in network preset. */
 export type KalvoraNetworkName = keyof typeof KALVORA_NETWORKS;
+
+/** Pin a network to its operator-published final genesis hash. */
+export function pinNetwork(network: KalvoraNetworkName | KalvoraNetwork, name: ChainName, genesisHash: Uint8Array | string): KalvoraNetwork {
+  const resolved = resolveNetwork(network);
+  const transactionContext = { chainId: deriveChainId(name, genesisHash) };
+  return { ...resolved, transactionContext, grpc: { ...resolved.grpc, transactionContext } };
+}
 
 /**
  * Resolve a preset name or custom definition into a {@link KalvoraNetwork}.

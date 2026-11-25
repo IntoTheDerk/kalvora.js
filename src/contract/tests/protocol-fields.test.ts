@@ -22,8 +22,16 @@ describe('clean-genesis contract fields', () => {
 
   it('accepts the current permission fields', () => {
     expect(() => validateCurrentContractFields({
-      restrictedKeys: [create(RestrictedKeySchema, { updateContract: true, mint: true })]
+      restrictedKeys: [create(RestrictedKeySchema, { publicKey: { walletAddress: new Uint8Array(128) }, updateContract: true, mint: true })]
     })).not.toThrow();
+  });
+
+  it('requires one parent and a local recovery authority when inheriting', () => {
+    const parent = create(RestrictedKeySchema, { publicKey: { parentContract: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao' }, updateContract: true });
+    const recovery = create(RestrictedKeySchema, { publicKey: { walletAddress: new Uint8Array(64) }, updateContract: true });
+    expect(() => validateCurrentContractFields({ restrictedKeys: [parent] })).toThrow('direct update_contract');
+    expect(() => validateCurrentContractFields({ restrictedKeys: [parent, parent, recovery] })).toThrow('one parent');
+    expect(() => validateCurrentContractFields({ restrictedKeys: [parent, recovery] })).not.toThrow();
   });
 
   it('rejects governance removal while consensus disables it', () => {

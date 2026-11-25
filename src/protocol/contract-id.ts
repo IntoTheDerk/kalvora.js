@@ -11,6 +11,8 @@
 import { blake3 } from '@noble/hashes/blake3.js';
 import bs58 from 'bs58';
 
+import { isWalletAddressBytes } from '../shared/crypto/falcon-address.js';
+
 const TEXT = new TextEncoder();
 
 const DOMAIN_CONTRACT_DATA = 'KALVORA_CONTRACT_DATA_V1';
@@ -23,7 +25,8 @@ const NETWORK_ID = 'KALVORA_MAINNET_V1';
 export const CREATOR_AUTHORIZATION = {
   SINGLE_KEY: 1,
   SMART_CONTRACT: 2,
-  GOVERNANCE: 3
+  GOVERNANCE: 3,
+  WALLET_ADDRESS: 4
 } as const;
 
 /** Single-key algorithm values written into an ordinary contract-ID preimage. */
@@ -210,11 +213,15 @@ export function deriveGenesisContractId(vanityNonce: bigint | number): string {
 
 /** Ordinary ID from creator authorization, vanity nonce, and the contract-data hash. */
 export function deriveOrdinaryContractId(input: OrdinaryContractIdInput): string {
+  const registered = input.creatorAuthorizationType === CREATOR_AUTHORIZATION.WALLET_ADDRESS;
+  if (registered && (input.creatorKeyAlgorithm !== 0 || !isWalletAddressBytes(input.creatorAuthorizationBytes))) {
+    throw new Error('Wallet creators require algorithm zero and a complete wallet address');
+  }
   if (input.contractDataHash.length !== 32) {
     throw new Error('contractDataHash must be 32 bytes');
   }
   const digest = blake3(concat([
-    prefixedString(DOMAIN_ORDINARY_ID),
+    prefixedString(registered ? 'KALVORA_CONTRACT_ID_V2' : DOMAIN_ORDINARY_ID),
     prefixedString(NETWORK_ID),
     u8(input.creatorAuthorizationType),
     u8(input.creatorKeyAlgorithm),

@@ -10,8 +10,18 @@ import type { BaseTXN } from '../../../proto/generated/txn_pb.js';
 import { getNonce as fetchNonce } from '../../api/handler/nonce/service.js';
 import { generateAddressFromPublicKey, getPublicKeyBytes } from '../../shared/crypto/address-utils.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
-import { transactionContextFields } from '../../sign/context.js';
+import { transactionContextFields, type TransactionContext } from '../../sign/context.js';
 import type { GRPCConfig } from '../../types/index.js';
+import { decodeWalletAddress } from '../crypto/falcon-address.js';
+
+/** Registered wallets use their selected address. Prefixed keys decode historical envelopes. */
+export function signerPublicKey(identity: string) {
+  if (identity.startsWith('sc_')) return create(PublicKeySchema, { smartContractAuth: new TextEncoder().encode(identity) });
+  if (identity.startsWith('gov_')) return create(PublicKeySchema, { governanceAuth: new TextEncoder().encode(identity) });
+  return create(PublicKeySchema, identity.includes('_')
+    ? { single: getPublicKeyBytes(identity) }
+    : { walletAddress: decodeWalletAddress(identity) });
+}
 
 /**
  * Build a standard BaseTXN (includes public key and nonce)
@@ -24,6 +34,7 @@ export function buildStandardBaseTXN(
     nonce: bigint;
     memo?: string;
     timestamp?: Date;
+    context?: TransactionContext;
   },
   transactionTypeName: string
 ): BaseTXN {
@@ -51,12 +62,11 @@ export function buildStandardBaseTXN(
     nanos: (timestampMilliseconds - timestampSeconds * 1000) * 1000000
   });
 
-  const publicKey = create(PublicKeySchema, {
-    single: new Uint8Array(getPublicKeyBytes(publicKeyId))
-  });
+  const publicKey = signerPublicKey(publicKeyId);
+  if (publicKey.walletAddress && nonce <= 0n) throw new Error('A registered wallet needs a positive next nonce');
 
   const base: Record<string, unknown> = {
-    ...transactionContextFields(transactionTypeName),
+    ...transactionContextFields(transactionTypeName, params.context),
     publicKey,
     timestamp,
     feeAmount: String(finalFeeAmount),
@@ -75,7 +85,7 @@ export async function getAddressAndNonce(
   publicKeyId: string,
   grpcConfig: GRPCConfig = {}
 ): Promise<{ address: string; nonce: bigint }> {
-  const address = generateAddressFromPublicKey(publicKeyId);
+  const address = publicKeyId.includes('_') ? generateAddressFromPublicKey(publicKeyId) : publicKeyId;
   const nonceDecimal = await fetchNonce(address, grpcConfig);
   const nonce = protoInt64.uParse(nonceDecimal.toString());
   return { address, nonce };

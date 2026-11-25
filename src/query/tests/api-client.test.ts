@@ -466,7 +466,7 @@ describe('contract & fee queries', () => {
     });
 
     it('rejects a malformed identifier', async () => {
-      await expect(client({}).getBaseFee(TRANSACTION_TYPE.COIN_TYPE, 'nounderscore')).rejects.toThrow('Invalid public key identifier');
+      await expect(client({}).getBaseFee(TRANSACTION_TYPE.COIN_TYPE, 'nounderscore')).rejects.toThrow(/address/i);
     });
   });
 

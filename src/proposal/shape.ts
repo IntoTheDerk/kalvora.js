@@ -7,10 +7,60 @@
  * node rejects in `contains_forbidden_words`.
  */
 
-import type { GovernanceTXN } from '../../proto/generated/txn_pb.js';
+import { GOVERNANCE_TYPE, type Governance, type GovernanceTXN, type PreGovernance, type VotingInstrumentRatio } from '../../proto/generated/txn_pb.js';
+import { isKalvoraMintId } from '../shared/network/constants.js';
+
+export function assertBasisPoints(value: number | undefined, field: string): void {
+  if (value === undefined || !Number.isInteger(value) || value < 1 || value > 10000) {
+    throw new RangeError(`${field} must be an integer from 1 to 10000`);
+  }
+}
+
+export function validateCouncilStage(stage: Omit<PreGovernance, '$typeName'>): void {
+  if (!isKalvoraMintId(stage.votingInstrument)) throw new Error('Council voting instrument must be a canonical contract ID');
+  if (!Number.isInteger(stage.days) || stage.days < 1 || stage.days > 0xffffffff) throw new RangeError('Invalid council duration');
+  assertBasisPoints(stage.threshold, 'council threshold');
+  assertBasisPoints(stage.regularQuorum, 'council regularQuorum');
+}
+
+/** Validate ratios and council configuration at contract creation or update. */
+export function validateGovernanceSettings(governance: Governance): void {
+  const { votingInstrument, votingRatio, preGovernance, preGovernanceStages, postGovernanceStages } = governance;
+  if (preGovernance && preGovernanceStages.length) throw new Error('Set either singleton or array PRE councils');
+  if (preGovernanceStages.length > 32 || postGovernanceStages.length > 32) throw new Error('At most 32 councils per phase');
+  if (governance.type === GOVERNANCE_TYPE.GRANULAR && (preGovernance || preGovernanceStages.length ||
+      postGovernanceStages.length || governance.allowProposalCouncils || votingInstrument.length || votingRatio.length ||
+      governance.regularQuorum || governance.threshold || governance.stageLength.length || governance.startTimestamp ||
+      governance.votingPeriod !== undefined || governance.proposalPeriod !== undefined || governance.maxApproved !== undefined ||
+      governance.chickenDinner !== undefined)) throw new Error('Granular governance uses proposal-specific rules and no councils');
+  if (preGovernance) validateCouncilStage(preGovernance);
+  preGovernanceStages.forEach(validateCouncilStage);
+  postGovernanceStages.forEach(validateCouncilStage);
+  const unmatched = new Set(votingInstrument);
+  if (unmatched.size !== votingInstrument.length) throw new Error('Duplicate voting instrument');
+  for (const ratio of votingRatio) {
+    if (!unmatched.delete(ratio.contractId)) throw new Error('Voting ratio must match one distinct instrument');
+    assertVotingRatio(ratio);
+  }
+  if (unmatched.size) throw new Error('Each voting instrument requires one ratio');
+}
+
+function assertVotingRatio(ratio: Pick<VotingInstrumentRatio, 'numerator' | 'denominator'>): void {
+  const max = (1n << 64n) - 1n;
+  if (ratio.numerator < 1n || ratio.denominator < 1n || ratio.numerator > max || ratio.denominator > max) {
+    throw new RangeError('Voting ratios must be positive uint64 values');
+  }
+}
+
+/** Convert one instrument/choice aggregate with its frozen ratio. Pass denomination 1 for NFTs or SBTs. */
+export function regularVotingUnits(raw: bigint, denomination: bigint, ratio: Pick<VotingInstrumentRatio, 'numerator' | 'denominator'>): bigint {
+  assertVotingRatio(ratio);
+  if (raw < 0n || denomination < 1n) throw new RangeError('Invalid vote weight or denomination');
+  return raw * ratio.numerator / (denomination * ratio.denominator);
+}
 
 export const FORBIDDEN_OPTION_WORDS = [
-  'against', 'fail', 'no', 'reject', 'oppose', 'negative',
+  'against', 'fail', 'no', 'yes', 'pass', 'reject', 'oppose', 'negative',
   'decline', 'deny', 'veto', 'refuse', 'nay', 'cancel',
   'abort', 'stop', 'block', 'disapprove', 'dissent', 'nothing'
 ] as const;
@@ -34,12 +84,14 @@ export function proposalAdditionalStageDivisor(stageLengthCount: number, hasPreG
 }
 
 /** Add the pre-governance stage surcharge: `fee + ceil(fee / divisor)`. */
-export function applyProposalStageFee(feeParts: string, stageLengthCount: number, hasPreGovernance: boolean): string {
-  const divisor = proposalAdditionalStageDivisor(stageLengthCount, hasPreGovernance);
+export function applyProposalStageFee(feeParts: string, stageLengthCount: number, councils: boolean | number): string {
+  const count = Number(councils);
+  if (!Number.isInteger(count) || count < 0 || count > 64) throw new RangeError('Invalid council count');
+  const divisor = proposalAdditionalStageDivisor(stageLengthCount, count > 0);
   const fee = BigInt(feeParts);
   if (divisor === 0) return fee.toString();
   const extra = (fee + BigInt(divisor) - 1n) / BigInt(divisor);
-  return (fee + extra).toString();
+  return (fee + BigInt(count) * extra).toString();
 }
 
 function containsForbiddenWord(option: string): boolean {

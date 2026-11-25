@@ -16,6 +16,7 @@
 import type { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../execute/index.js';
 import type { StakingOptions } from '../types.js';
 import { createStakingTransaction } from '../utils.js';
@@ -37,7 +38,7 @@ import { createStakingTransaction } from '../utils.js';
  */
 export async function releaseInstant(
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: StakingOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!publicKeyBase58Identifier) throw new Error('publicKeyBase58Identifier is required');
@@ -60,7 +61,7 @@ export async function releaseInstant(
  */
 export async function releaseInstantAndSend(
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: StakingOptions = {}
 ): Promise<string> {
   const txn = await releaseInstant(publicKeyBase58Identifier, privateKeyBase58, options);

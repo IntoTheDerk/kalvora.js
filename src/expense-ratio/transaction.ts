@@ -27,7 +27,7 @@ import {
   submitStandardTransaction,
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 /** Input for {@link buildExpenseRatioTXN}. */
@@ -131,14 +131,14 @@ export async function buildExpenseRatioTXN(
  */
 export async function createExpenseRatioTXN(
   input: ExpenseRatioInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: StandardTXNOptions = {}
 ): Promise<ExpenseRatioTXN> {
-  if (typeof privateKey !== 'string' || privateKey === '') {
+  if (!privateKey || (typeof privateKey === 'string' && !privateKey.trim())) {
     throw new Error('privateKey is required');
   }
-  const txn = await buildExpenseRatioTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+  const txn = await buildExpenseRatioTXN(input, optionsForSigner(options, privateKey));
+  return signBuiltTransaction(txn, privateKey, input.publicKey, options.grpcConfig?.transactionContext);
 }
 
 /**

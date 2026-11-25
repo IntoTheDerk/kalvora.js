@@ -9,13 +9,21 @@
  */
 
 import { clone, toBinary } from '@bufbuild/protobuf';
-import { ed25519 } from '@noble/curves/ed25519.js';
-import { ed448 } from '@noble/curves/ed448.js';
+import { sha256 } from '@noble/hashes/sha2.js';
 
 import {
+  ContractResponseSchema,
   SmartContractEventsResponseSchema,
-  type SmartContractEventsResponse
+  SmartContractEventsSearchResponseSchema,
+  type ContractResponse,
+  type SmartContractEventsResponse,
+  type SmartContractEventsSearchRequest,
+  type SmartContractEventsSearchResponse
 } from '../../proto/generated/kal_api_pb.js';
+import type { FalconPublicKey } from '../../proto/generated/txn_pb.js';
+import { decodeWalletAddress, deriveFalconAddress, falconVariantFromKey, WALLET_HASH } from '../shared/crypto/falcon-address.js';
+import { bytesEqual, concatBytes, encodeU64BE } from '../shared/utils/byte-utils.js';
+import { verifyFalconSignature } from '../wallet-creation/falcon.js';
 
 export interface AcceptedSmartContractEvent {
   smartContract: string;
@@ -31,26 +39,49 @@ export interface AcceptedSmartContractEvent {
   event: SmartContractEventsResponse;
 }
 
-function splitKey(single: Uint8Array): { prefix: string; raw: Uint8Array } {
-  const underscore = single.lastIndexOf(0x5f, 3);
-  if (underscore < 0) throw new Error('validator public key has no prefix');
-  return {
-    prefix: String.fromCharCode(...single.subarray(0, underscore + 1)),
-    raw: single.subarray(underscore + 1)
-  };
+/** Operator from a trusted validator assignment and its finalized single-key registry binding. */
+export interface RegisteredOperator {
+  address: string;
+  key: FalconPublicKey;
 }
 
-/** Verify the validator signature on a pushed or searched event. */
-export function verifySmartContractEventSignature(event: SmartContractEventsResponse): boolean {
-  const single = event.publicKey?.single;
-  if (!single || single.length === 0 || event.signature.length === 0) return false;
-  const unsigned = clone(SmartContractEventsResponseSchema, event);
+export function matchesOperatorAddress(operator: RegisteredOperator): boolean {
+  try {
+    const raw = decodeWalletAddress(operator.address);
+    return falconVariantFromKey(operator.key.rawPublicKey) === operator.key.variant &&
+      Object.values(WALLET_HASH).some(hash => bytesEqual(deriveFalconAddress(operator.key.rawPublicKey, hash), raw));
+  } catch {
+    return false;
+  }
+}
+
+/** Verify the enclosing concrete protobuf, including embedded event bodies and cursor. */
+export function verifyOperatorResponse(
+  response: ContractResponse | SmartContractEventsResponse | SmartContractEventsSearchResponse,
+  operator: RegisteredOperator
+): boolean {
+  const signer = response.publicKey;
+  if (!signer?.walletAddress || !matchesOperatorAddress(operator) || !bytesEqual(signer.walletAddress, decodeWalletAddress(operator.address)) ||
+      signer.single.length || signer.multi || signer.governanceAuth !== undefined ||
+      signer.smartContractAuth !== undefined || signer.parentContract !== undefined || signer.witnesses.length) return false;
+  const schema = response.$typeName === 'kal_api.ContractResponse' ? ContractResponseSchema
+    : response.$typeName === 'kal_api.SmartContractEventsResponse' ? SmartContractEventsResponseSchema
+      : SmartContractEventsSearchResponseSchema;
+  const unsigned = clone(schema, response);
   unsigned.signature = new Uint8Array();
-  const message = toBinary(SmartContractEventsResponseSchema, unsigned);
-  const { prefix, raw } = splitKey(single);
-  if (prefix === 'A_') return ed25519.verify(event.signature, message, raw);
-  if (prefix === 'B_') return ed448.verify(event.signature, message, raw);
-  return false;
+  return verifyFalconSignature(operator.key.rawPublicKey, toBinary(schema, unsigned), response.signature);
+}
+
+export function verifySmartContractEventSignature(event: SmartContractEventsResponse, operator: RegisteredOperator): boolean {
+  return verifyOperatorResponse(event, operator);
+}
+
+export function eventSearchRequestDigest(request: SmartContractEventsSearchRequest): Uint8Array {
+  const encoder = new TextEncoder();
+  const id = encoder.encode(request.smartContractId);
+  return sha256(concatBytes(encoder.encode('KAL_EVENT_SEARCH_REQUEST_V1'), encodeU64BE(id.length), id,
+    encodeU64BE(request.searchStart?.seconds ?? 0n), encodeU64BE(request.searchStart?.nanos ?? 0),
+    encodeU64BE(request.pageSize), encodeU64BE(request.pageCursor.length), request.pageCursor));
 }
 
 /**
@@ -58,8 +89,8 @@ export function verifySmartContractEventSignature(event: SmartContractEventsResp
  *
  * @throws Error when the validator signature does not verify
  */
-export function acceptSmartContractEvent(event: SmartContractEventsResponse): AcceptedSmartContractEvent {
-  if (!verifySmartContractEventSignature(event)) {
+export function acceptSmartContractEvent(event: SmartContractEventsResponse, operator: RegisteredOperator): AcceptedSmartContractEvent {
+  if (!verifySmartContractEventSignature(event, operator)) {
     throw new Error('smart contract event signature did not verify');
   }
   const timestamp = event.timestamp

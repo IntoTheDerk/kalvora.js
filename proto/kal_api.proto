@@ -12,6 +12,7 @@ option optimize_for = SPEED;
 service APIService{
     rpc Balance(BalanceRequest) returns (BalanceResponse);
     rpc Nonce(NonceRequest) returns (NonceResponse);
+    rpc GetSigningWallet(SigningWalletRequest) returns (SigningWalletResponse);
     rpc ContractFee(ContractFeeRequest) returns (ContractFeeResponse);
     rpc BaseFee(BaseFeeRequest) returns (BaseFeeResponse);
     rpc GetTokenFeeInfo(TokenFeeInfoRequest) returns (TokenFeeInfoResponse);
@@ -20,6 +21,7 @@ service APIService{
     rpc Database(DatabaseRequest) returns (DatabaseResponse);
     rpc Block(BlockRequest) returns (BlockResponse);
     rpc ProposalLedger(ProposalLedgerRequest) returns (ProposalLedgerResponse);
+    rpc ProposalDetail(ProposalDetailRequest) returns (ProposalDetailResponse);
     rpc SmartContractActivityRequest (ActivityRequest) returns (google.protobuf.Empty);
     rpc SmartContractEvents(SmartContractEventsResponse) returns (google.protobuf.Empty);
     rpc Contract(ContractRequest) returns (ContractResponse);
@@ -28,6 +30,17 @@ service APIService{
     rpc GetAllAuthorizedFees(google.protobuf.Empty) returns (GetAllAuthorizedFeesResponse);
 }
 
+message SigningWalletRequest {
+    bytes wallet_address = 1;
+}
+message SigningWalletResponse {
+    // An absent identity means the address has no finalized signing registration.
+    oneof identity {
+        kal_txn.FalconPublicKey falcon = 1;
+        kal_txn.WalletPolicy policy = 2;
+    }
+    optional kal_txn.WalletHash policy_hash = 3;
+}
 message GetAllAuthorizedFeesResponse{
     repeated AuthorizedFee authorized_fees = 1;
 }
@@ -101,6 +114,61 @@ message ProposalStatus{
     kal_validator.Proposal proposal = 2;
     optional kal_txn.PreGovernance pre_governance = 3;
     bool promotion_pending = 4;
+    repeated kal_txn.PreGovernance pre_governance_stages = 5; //Effective ordered list, including legacy singleton
+    optional uint32 pre_governance_stage = 6; //Active zero-based step while phase is PRE_GOVERNANCE
+    uint32 pre_governance_stage_count = 7;
+    repeated kal_txn.PreGovernance post_governance_stages = 8;
+    optional uint32 post_governance_stage = 9;
+    uint32 post_governance_stage_count = 10;
+    optional kal_txn.PreGovernance post_governance = 11; //Current entry while phase is POST_GOVERNANCE
+}
+
+// Bounded typed read of one active proposal. Voter pages follow the immutable
+// whitelist order; the full proposal/actions and legacy Base58 blobs are omitted.
+message ProposalDetailRequest{
+    bytes proposal_id = 1; // Raw 32-byte proposal hash, not Base58 or hex text.
+    uint32 voter_offset = 2;
+    uint32 page_size = 3; // Zero selects 100; maximum 1000.
+    bytes expected_state_digest = 4; // Optional SHA256 from a previous page.
+}
+message GranularProposalDetail{
+    uint32 threshold = 1;
+    uint32 regular_quorum = 2;
+    optional string voting_instrument = 3;
+    uint32 whitelist_size = 4;
+    uint32 participant_count = 5; // Includes recorded zero-weight votes.
+    bool closed = 6; // Decision inputs frozen; a committed result is separate.
+    uint64 closed_seconds = 7;
+    string yes_weight = 8;
+    string no_weight = 9;
+    repeated string option_weights = 10; // Includes against at index zero.
+    bool result_ready = 11; // Pending processing, not committed finality.
+}
+message GranularVoterStatus{
+    bytes wallet = 1; // Exact canonical identity, including supported wider forms.
+    optional kal_validator.GranularVote vote = 2;
+}
+message ProposalDetailResponse{
+    bytes proposal_id = 1;
+    string contract_id = 2;
+    google.protobuf.Timestamp start = 3;
+    google.protobuf.Timestamp end = 4;
+    bool options_set = 5;
+    uint32 number_of_options = 6;
+    kal_validator.PROPOSAL_PHASE phase = 7;
+    uint32 stage = 8;
+    optional GranularProposalDetail granular = 9;
+    repeated GranularVoterStatus voters = 10;
+    uint32 voter_offset = 11;
+    uint32 next_voter_offset = 12;
+    bool has_more = 13;
+    bytes state_digest = 14;
+    repeated kal_txn.PreGovernance pre_governance_stages = 15;
+    optional uint32 pre_governance_stage = 16;
+    bool promotion_pending = 17;
+    repeated kal_txn.PreGovernance post_governance_stages = 18;
+    optional uint32 post_governance_stage = 19;
+    optional uint32 post_governance_winning_option = 20;
 }
 //Block
 message BlockRequest{
@@ -165,6 +233,8 @@ message ContractFeeResponse{
 message BaseFeeRequest{
     optional kal_txn.PublicKey public_key = 1;
     kal_txn.TRANSACTION_TYPE txn_type = 2;
+    // The single registered sponsor, or the operational co-signer of a validator assignment.
+    optional kal_txn.PublicKey additional_signer = 3;
 }
 message BaseFeeResponse{
     string key_fee = 1;     //1000000000000000000 = $1.00 (1,000,000,000,000,000,000)

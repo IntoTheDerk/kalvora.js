@@ -3,123 +3,112 @@ title: Getting Started
 group: Guides
 ---
 
-# Getting Started
+# Getting started
 
-## Install
+Install the SDK with `npm install kalvora.js`. Local Falcon signing has been tested in Node.js 24 and Microsoft Edge. The Node.js package requires 20.19 or later.
 
-```bash
-npm install kalvora.js
-```
+## Create a receiving address
 
-Node.js ≥ 20, modern browsers, and React Native are supported. The package
-ships ESM (`dist/index.mjs`), CommonJS (`dist/index.cjs`), and type
-declarations.
-
-## 1. Create a wallet
+Obtain the network name (`kal_main` or `kal_proto`), final block-zero hash, assigned operator wallet address and HTTPS gRPC-Web endpoint from your operator over a trusted channel. The client uses the operator address to verify signed responses, including contract lookups during minting. The following snippets use the same wallet and client throughout. Supply your own protected key store and a finality verifier for that chain.
 
 ```typescript
-import { createWallet, generateMnemonicPhrase, KEY_TYPE } from 'kalvora.js';
+import { FalconWallet, KalvoraClient } from 'kalvora.js';
 
-const mnemonic = generateMnemonicPhrase(24);
-const wallet = await createWallet({ keyType: KEY_TYPE.ED25519, mnemonic });
-
-wallet.address;    // base58 of the raw public key (the standard Kalvora address)
-wallet.publicKey;  // public key identifier used by every builder
-wallet.privateKey; // base58 private key — keep secret
-wallet.secureClear(); // wipe key material from memory when done
+const wallet = FalconWallet.generate({
+  networkName: 'kal_proto',
+  genesisHash: trustedFinalGenesisHashHex
+});
+await protectedKeyStore.save(wallet.exportBackup());
+const client = new KalvoraClient({
+  grpc: {
+    endpoint: operatorGrpcWebEndpoint,
+    trustedOperatorAddress,
+    transactionContext: { chainId: wallet.chainId }
+  }
+});
+console.log(wallet.walletAddress); // share this Base58 receiving address
 ```
 
-Kalvora wallets live at `m/44'/5258'/account'/change'/address'` (SLIP-44 coin
-type `5258`, all hardened). Ed25519 keys are standard SLIP-0010, so any
-SLIP-0010 wallet derives the same address from the same mnemonic; Ed448 uses
-Kalvora's own scheme. See [HD derivation](./hd-derivation.md).
+The default is Falcon-512 with BLAKE3-256. Store the **unencrypted** backup in protected storage. Use `FalconWallet.restore(savedBackup)` to reopen it. Each hash choice for a key produces an independent address and nonce. A legacy Ed25519 or Ed448 mnemonic still restores its historical wallet. Generate a new Falcon wallet for fresh-genesis deposits.
 
-Leave `hashTypes` unset (or pass `[]`) for the standard address. Passing hash
-types produces a legacy hashed address format instead.
+## Fund and register
 
-## 2. Connect to the network
+An ordinary payment can fund the receiving address before registration. For this self-funded example, deposit enough native KALV to cover registration and payment fees. A separate, already registered single-key wallet can also sponsor registration. The raw nonce RPC returns the committed nonce. The SDK's `getNextNonce` adds one.
 
 ```typescript
-import { KalvoraClient } from 'kalvora.js';
+import { buildWalletRegistration, signAndFinalize } from 'kalvora.js';
 
-const kalvora = new KalvoraClient();            // protonet, HTTPS
-// const kalvora = new KalvoraClient({ grpc: { endpoint: 'https://my-node.example:443' } });
-
-const nonce = await kalvora.query.getNextNonce(wallet.address);
-const { balance, denomination } = await kalvora.query.getBalance(wallet.address, kalvora.nativeToken);
+if (!await client.query.getSigningWallet(wallet.walletAddress)) {
+  const txn = await buildWalletRegistration(wallet, { grpcConfig: client.grpcConfig });
+  const signed = await signAndFinalize(txn, wallet);
+  const registration = await client.submitAndWait(signed, { verifyFinalizedBlock });
+  if (!registration.success) throw new Error(registration.statusName);
+}
+const registered = await client.query.getSigningWallet(wallet.walletAddress);
+const key = registered?.identity.case === 'falcon' ? registered.identity.value : undefined;
+const expectedKey = wallet.rawPublicKey;
+if (!key || key.variant !== wallet.variant || key.rawPublicKey.length !== expectedKey.length ||
+    !key.rawPublicKey.every((byte, i) => byte === expectedKey[i])) {
+  throw new Error('The finalized signing key differs from the selected wallet');
+}
 ```
 
-All amounts returned by the query client are `bigint`s in the token's
-smallest unit. Convert for display with `partsToWhole(balance, denomination)`.
+`verifyFinalizedBlock` is an application callback that verifies the expected chain and committee or consults a trusted finalized source. Submission acknowledges queuing. A matched receipt with a present status tells you whether execution succeeded and what fees were charged.
 
-## 3. Send tokens
+## Make the first payment
+
+A registration finalized in block H enables spending in H+1. The first transaction after a nonce-1 registration normally uses nonce 2. The example fetches the committed nonce and fee inputs through the pinned client configuration.
 
 ```typescript
-import { createCoinTXN, KALVORA_NATIVE_TOKEN } from 'kalvora.js';
+import { createCoinTXN, KALVORA_NATIVE_TOKEN, partsToWhole } from 'kalvora.js';
 
-const txn = await createCoinTXN(
-  [{ publicKey: wallet.publicKey, privateKey: wallet.privateKey, amount: '1.5' }],
+const { balance, denomination } = await client.query.getBalance(wallet.walletAddress, KALVORA_NATIVE_TOKEN);
+console.log(partsToWhole(balance, denomination));
+
+const payment = await createCoinTXN(
+  [{ signer: wallet, amount: '1.5' }],
   [{ to: recipientAddress, amount: '1.5' }],
   KALVORA_NATIVE_TOKEN,
   { baseFeeId: KALVORA_NATIVE_TOKEN },
   '',
-  kalvora.grpcConfig
+  client.grpcConfig
 );
-
-const result = await kalvora.submitAndWait(txn);
-if (!result.success) {
-  throw new Error(`Transaction failed on-chain: ${result.statusName}`);
-}
-console.log(`Included in block ${result.blockHeight}`);
+const result = await client.submitAndWait(payment, { verifyFinalizedBlock });
+if (!result.success) throw new Error(result.statusName);
+console.log(result.hash, result.blockHeight);
 ```
 
-`CoinTXN` amounts are in whole tokens (`'1.5'`); the SDK converts them using
-the token's denomination. Newer single-purpose builders (mint, allowance, …)
-take smallest-unit amounts to avoid a network lookup — see each module's docs.
+Coin amounts use whole tokens. Other builders such as Mint accept amounts in smallest units. For a safe send, set `safeSend: true` in the last Coin build-options argument. Every destination must already be registered in the finalized parent. Creating a destination's first token balance can incur a separate fee.
 
-## 4. Sign elsewhere (wallets, hardware, cold storage)
+Keep the signed protobuf and locally computed hash before submitting a payment. If submission times out, reconcile the original receipt and committed nonce. Within the validity window, resubmitting identical bytes preserves the hash. A fresh Falcon signature changes it.
 
-Every transaction type has an unsigned `build*` step. Sign with any
-`KalvoraSigner` implementation:
+## Sign through an external wallet
+
+Pass the selected registered address to the builder. A compatible adapter supplies that address, a trusted wire chain ID and a signing method. Offline standard builders accept an explicit nonce and authorized fee cap. Coin also needs the token denomination for amount conversion.
 
 ```typescript
-import { buildMintTXN, signAndFinalize, type KalvoraSigner } from 'kalvora.js';
-
-const signer: KalvoraSigner = {
-  publicKey: wallet.publicKey,
-  sign: bytes => myHardwareWallet.sign(bytes)
-};
+import { buildMintTXN, signAndFinalize as finalizeMint } from 'kalvora.js';
 
 const unsigned = await buildMintTXN(
-  { contractId, amount: 1_000_000n, recipientAddress, publicKey: signer.publicKey },
-  { grpcConfig: kalvora.grpcConfig }
+  { contractId, amount: 1_000_000n, recipientAddress, publicKey: adapter.address! },
+  { grpcConfig: client.grpcConfig }
 );
-const signed = await signAndFinalize(unsigned, signer);
-await kalvora.submit(signed);
+const mint = await finalizeMint(unsigned, adapter.signer!);
 ```
 
-Pass both `nonce` and `feeAmountParts` to build without any network access.
+The signing wallet must hold the contract's mint permission. A provider's public key can have more than one registered address. [Wallet adapter integration](../adapter-integration-guide.md)
 
-## 5. Handle errors
+## Handle RPC errors
 
 ```typescript
 import { isKalvoraRpcError, RpcCode } from 'kalvora.js';
 
 try {
-  await kalvora.query.getContract('KALdoesnotexist');
+  await client.query.getContract(contractId);
 } catch (error) {
-  if (isKalvoraRpcError(error)) {
-    console.log(error.codeName, error.method, error.detail); // e.g. INVALID_ARGUMENT Contract …
-  }
+  if (!isKalvoraRpcError(error) || error.code !== RpcCode.NotFound) throw error;
+  console.log('Contract not found');
 }
 ```
 
-## Next steps
-
-- [Transactions](./transactions.md) — every transaction type, permissions, and options.
-- [Contract IDs](./contract-ids.md) — checksummed Base58 ids and deriving one for a new contract.
-- [Proposals](../../src/proposal/README.md) — text proposals and proposals that carry a coin transfer.
-- [Querying](./querying.md) — balances, contracts, blocks, events, waiting for inclusion.
-- [Architecture](./architecture.md) — transport, signing, and protocol sync.
-- [HD derivation](./hd-derivation.md) — the key-derivation spec and reference vectors.
-- [Wallet adapter integration](../adapter-integration-guide.md) — connect browser dApps to Kalvora wallets.
+For API details, see [transactions](./transactions.md), [contract IDs](./contract-ids.md), [proposals](../../src/proposal/README.md) and [queries](./querying.md).

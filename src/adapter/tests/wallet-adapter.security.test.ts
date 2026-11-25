@@ -1,6 +1,7 @@
 /* global MessageEvent, Storage */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { FalconWallet, WALLET_HASH } from '../../wallet-creation/falcon.js';
 import {
   KALVORA_ADAPTER_BROADCAST,
   KALVORA_ADAPTER_STORAGE_KEYS,
@@ -11,6 +12,7 @@ import {
 } from '../constants.js';
 import { KalvoraWalletAdapter } from '../wallet-adapter.js';
 import { DeepLinkSigner } from '../wallet-signer.js';
+import { WalletConnectSigner } from '../walletconnect.js';
 
 const CONNECT_PENDING_KEY = KALVORA_ADAPTER_STORAGE_KEYS.pendingConnect;
 const SIGN_PENDING_KEY = KALVORA_ADAPTER_STORAGE_KEYS.pendingSign;
@@ -20,6 +22,49 @@ const ADDRESS = KALVORA_DEEP_LINK_PARAMS.address;
 const VALID_PUBLIC_KEY = 'A_AKpo7NMd3JhGAonxXJXuG8XgDXA8jZGikK6UaHDYxksU';
 const VALID_ADDRESS = VALID_PUBLIC_KEY.slice(2);
 const VALID_SIGNATURE_BASE64 = Buffer.from(new Uint8Array(64).fill(7)).toString('base64');
+
+describe('Falcon adapter accounts', () => {
+  it('uses the selected address in both injected and WalletConnect requests and rejects a different signed payload', async () => {
+    const owner = FalconWallet.generate({ networkName: 'kal_main', genesisHash: '47'.repeat(32), variant: 2 });
+    const data = Uint8Array.of(3, 6);
+    const signature = Buffer.from(await owner.sign(data)).toString('base64');
+    const request = vi.fn()
+      .mockResolvedValueOnce({ accounts: [{ publicKey: owner.publicKey, address: owner.walletAddress }] })
+      .mockResolvedValue({ signature });
+    Object.assign(browserWindow, { [KALVORA_INJECTED_PROVIDER_KEY]: {
+      [KALVORA_PROVIDER_FLAG]: true, publicKey: owner.publicKey, isConnected: true, request
+    } });
+    const adapter = new KalvoraWalletAdapter({ chainId: owner.chainId });
+    await adapter.connect();
+    expect(await adapter.signer!.sign(data)).toHaveLength(1280);
+    expect(request.mock.calls[1]?.[1]).toMatchObject({ walletAddress: owner.walletAddress });
+    const wcRequest = vi.fn().mockResolvedValue({ signature });
+    const wc = new WalletConnectSigner({ request: wcRequest }, { topic: 'approved-session' }, owner.publicKey,
+      'kalvora:protonet', { walletAddress: owner.walletAddress, chainId: owner.chainId });
+    expect(await wc.sign(data)).toHaveLength(1280);
+    expect(wcRequest.mock.calls[0]?.[0].request.params).toMatchObject({ walletAddress: owner.walletAddress });
+    await expect(wc.sign(Uint8Array.of(9))).rejects.toThrow('invalid Falcon signature');
+  });
+
+  it('keeps a wide selected address across redirects, verifies the result, and restores only on the pinned chain', async () => {
+    const owner = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: '01'.repeat(32), walletHash: WALLET_HASH.BLAKE3_9001 });
+    const adapter = new KalvoraWalletAdapter({ chainId: owner.chainId });
+    expect(() => adapter.connectManual(owner.publicKey, VALID_ADDRESS)).toThrow('match');
+    adapter.connectManual(owner.publicKey, owner.walletAddress);
+    expect(adapter.signer?.walletHash).toBe(WALLET_HASH.BLAKE3_9001);
+    const data = Uint8Array.of(42);
+    void adapter.signer!.sign(data);
+    const pending = JSON.parse(sessionStorage.getItem(SIGN_PENDING_KEY)!);
+    expect(pending.walletAddress).toBe(owner.walletAddress);
+    setCallback({
+      [RESULT]: Buffer.from(await owner.sign(data)).toString('base64'), [REQUEST_ID]: pending.requestId
+    });
+    const restored = new KalvoraWalletAdapter({ chainId: owner.chainId });
+    expect(restored.address).toBe(owner.walletAddress);
+    expect(restored.consumePendingSignResult()?.walletAddress).toBe(owner.walletAddress);
+    expect(new KalvoraWalletAdapter({ chainId: new Uint8Array(32) }).connected).toBe(false);
+  });
+});
 
 class MemoryStorage implements Storage {
   private readonly values = new Map<string, string>();

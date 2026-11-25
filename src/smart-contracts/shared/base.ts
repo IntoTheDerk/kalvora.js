@@ -11,23 +11,13 @@ import { UniversalFeeCalculator, type FeeConfigHelper } from '../../shared/fee-c
 import { logger } from '../../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../../shared/tx/base.js';
+import { parseUint256, type StandardTXNOptions } from '../../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../../shared/utils/testing-defaults/index.js';
 import type { GRPCConfig } from '../../types/index.js';
 
-export interface SmartContractBaseTXNOptions {
-  /** Optional memo */
-  memo?: string;
-  /** gRPC configuration */
-  grpcConfig?: GRPCConfig;
-  /** Optional nonce override */
-  nonce?: string | number | bigint;
-  /** Fee ID (defaults to `KALVORA_NATIVE_TOKEN`) */
-  feeId?: string;
-  /** Manual fee amount in smallest units/parts */
-  feeAmountParts?: string;
-  /** Overestimate percentage for auto-calculated fees */
-  overestimatePercent?: number;
-}
+export type SmartContractBaseTXNOptions = Pick<StandardTXNOptions,
+  'memo' | 'grpcConfig' | 'nonce' | 'feeId' | 'feeAmountParts' | 'overestimatePercent' |
+  'proofLayout' | 'nonNativeMultiplier' | 'timestamp'>;
 
 export async function buildSmartContractBaseTXN(
   publicKeyBase58Identifier: string,
@@ -52,22 +42,13 @@ export async function buildSmartContractBaseTXN(
     nonce = result.nonce;
   }
 
-  const baseParams: {
-    publicKeyId: string;
-    nonce: bigint;
-    memo?: string;
-    feeId?: string;
-    feeAmountParts?: string;
-  } = {
-    publicKeyId: publicKeyBase58Identifier,
-    nonce
-  };
-  if (options.memo) baseParams.memo = options.memo;
-  if (options.feeId !== undefined) baseParams.feeId = options.feeId;
-  if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
-
   return {
-    base: buildStandardBaseTXN(baseParams, operation.slice(5)),
+    base: buildStandardBaseTXN({ publicKeyId: publicKeyBase58Identifier, nonce, feeId: effectiveFeeId,
+      ...(options.memo !== undefined && { memo: options.memo }),
+      ...(options.timestamp && { timestamp: options.timestamp }),
+      ...(options.feeAmountParts !== undefined && { feeAmountParts: parseUint256(options.feeAmountParts, 'feeAmountParts', false) }),
+      ...(grpcConfig.transactionContext && { context: grpcConfig.transactionContext })
+    }, operation.slice(5)),
     grpcConfig,
     effectiveFeeId
   };
@@ -79,27 +60,19 @@ export async function calculateSmartContractFee<T extends TransactionMessage>(
   grpcConfig: GRPCConfig,
   effectiveFeeId: string
 ): Promise<void> {
-  if (options.feeAmountParts !== undefined && options.gasFeeInUsd === undefined) {
-    logger.warn('Manual base fee parts specified - skipping fee calculation and conversion. Fee is not validated and may be insufficient, causing transaction failure.', {
-      baseFeeId: effectiveFeeId,
-      providedFeeParts: options.feeAmountParts,
-      operation: 'manualSmartContractBaseFeeParts'
-    });
-
-    const txnProto = txn as { base?: { feeAmount?: string; feeId?: string } };
-    if (txnProto.base) {
-      txnProto.base.feeAmount = options.feeAmountParts;
-      txnProto.base.feeId = effectiveFeeId;
-    }
-    return;
+  if (options.gasFeeInUsd !== undefined && (!Number.isFinite(options.gasFeeInUsd) || options.gasFeeInUsd < 0)) {
+    throw new RangeError('gasFeeInUsd must be finite and non-negative');
   }
+  if (options.feeAmountParts !== undefined && !options.gasFeeInUsd) return;
 
   const feeOptions: FeeConfigHelper<T> = {
     protoObject: txn,
     tokenInfoMap: new Map(),
     baseFeeId: effectiveFeeId,
     grpcConfig,
-    ...(options.feeAmountParts !== undefined && { baseFeeParts: options.feeAmountParts }),
+    ...(options.feeAmountParts !== undefined && txn.base && { baseFeeParts: txn.base.feeAmount }),
+    ...(options.proofLayout && { proofLayout: options.proofLayout }),
+    ...(options.nonNativeMultiplier !== undefined && { nonNativeMultiplier: options.nonNativeMultiplier }),
     ...(options.gasFeeInUsd !== undefined && { gasFeeInUsd: options.gasFeeInUsd }),
     ...(options.overestimatePercent !== undefined && { overestimatePercent: options.overestimatePercent })
   };

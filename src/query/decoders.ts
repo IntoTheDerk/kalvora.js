@@ -10,13 +10,14 @@
  */
 
 import {
+  GovernanceChildDisposition,
   TRANSACTION_TYPE,
   TXN_STATUS,
   type TXNS,
   type TXNStatusFees
 } from '../../proto/generated/txn_pb.js';
 import type { Block } from '../../proto/generated/validator_pb.js';
-import { bytesToHex } from '../shared/utils/byte-utils.js';
+import { bytesEqual, bytesToHex } from '../shared/utils/byte-utils.js';
 
 // ============================================================================
 // SCALED VALUES
@@ -202,7 +203,8 @@ const TXNS_LIST_TYPES = {
   burnSbtTxns: TRANSACTION_TYPE.SBT_BURN_TYPE,
   smartContractInstantiateTxns: TRANSACTION_TYPE.SMART_CONTRACT_INSTANTIATE_TYPE,
   allowanceTxns: TRANSACTION_TYPE.ALLOWANCE_TYPE,
-  proposalCancelTxns: TRANSACTION_TYPE.PROPOSAL_CANCEL_TYPE
+  proposalCancelTxns: TRANSACTION_TYPE.PROPOSAL_CANCEL_TYPE,
+  walletRegistrations: TRANSACTION_TYPE.REGISTER_WALLET_TYPE
 } as const satisfies Partial<Record<keyof TXNS, TRANSACTION_TYPE>>;
 
 /** A transaction extracted from a block, with its type and (hex) hash. */
@@ -242,6 +244,8 @@ export function listBlockTransactions(block: Block): BlockTransaction[] {
 
 /** Processing result for one transaction, from `TXNS.txn_fees_and_status`. */
 export interface TransactionResult {
+  /** Ratios frozen when a governance proposal was accepted. */
+  acceptedVotingRatio?: TXNStatusFees['acceptedVotingRatio'];
   /** Lower-case hex transaction hash. */
   hash: string;
   /** Network status code. `TXN_STATUS.OK` means the transaction succeeded. */
@@ -279,6 +283,7 @@ export function toTransactionResult(raw: TXNStatusFees): TransactionResult {
     status: raw.status,
     statusName: TXN_STATUS[raw.status] ?? `UNKNOWN_${raw.status}`,
     success: raw.status === TXN_STATUS.OK,
+    ...(raw.acceptedVotingRatio.length ? { acceptedVotingRatio: raw.acceptedVotingRatio } : {}),
     baseFees: parseUintString(raw.baseFees, 'baseFees'),
     baseFeeContractId: raw.baseContractId,
     ...(raw.contractFees !== undefined ? { contractFees: parseUintString(raw.contractFees, 'contractFees') } : {}),
@@ -287,6 +292,27 @@ export function toTransactionResult(raw: TXNStatusFees): TransactionResult {
     ...(raw.proposalIdentifier !== undefined ? { proposalIdentifier: raw.proposalIdentifier } : {}),
     raw
   };
+}
+
+/** Join committed governance outcomes to their receipts without expanding a terminal group into executions. */
+export function listGovernanceChildOutcomes(block: Block) {
+  const txns = block.transactions;
+  if (!txns) return [];
+  return txns.governanceChildOutcomes.map(outcome => {
+    const group = outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_GROUP_OUTPUT_TOO_LARGE;
+    if (group && (!outcome.terminalGroupChildCount || outcome.terminalGroupSha256?.length !== 32 ||
+        outcome.receiptIndex !== undefined)) throw new Error('Invalid governance child group marker');
+    const hasReceipt = outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_RECEIPT_SUCCESS ||
+      outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_RECEIPT_FAILURE;
+    const raw = outcome.receiptIndex === undefined ? undefined : txns.txnFeesAndStatus[outcome.receiptIndex];
+    if (hasReceipt !== (outcome.receiptIndex !== undefined) || (hasReceipt && (!raw ||
+        !bytesEqual(raw.txnHash, outcome.childHash)))) throw new Error('Invalid governance child receipt index');
+    const receipt = raw && toTransactionResult(raw);
+    if (receipt && receipt.success !== (outcome.disposition === GovernanceChildDisposition.GOVERNANCE_CHILD_RECEIPT_SUCCESS)) {
+      throw new Error('Governance child receipt status disagrees with its disposition');
+    }
+    return { outcome, receipt };
+  });
 }
 
 /**

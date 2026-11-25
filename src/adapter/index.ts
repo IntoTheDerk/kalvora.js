@@ -171,3 +171,4 @@ export type {
   KalvoraWCSignMessageResult,
   KalvoraWCGetAccountsResult
 } from './walletconnect.js';
+export type { ExternalSigningAccount } from './signing-account.js';

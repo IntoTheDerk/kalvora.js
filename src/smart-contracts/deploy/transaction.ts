@@ -12,7 +12,7 @@ import { create } from '@bufbuild/protobuf';
 import { LANGUAGE, SmartContractTXNSchema } from '../../../proto/generated/txn_pb.js';
 import type { SmartContractTXN } from '../../../proto/generated/txn_pb.js';
 import { validateKeyPair } from '../../contract/shared/utils.js';
-import { signWithKey } from '../../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../../sign/builder.js';
 import type { GRPCConfig } from '../../types/index.js';
 import {
   buildSmartContractBaseTXN,
@@ -44,7 +44,7 @@ export interface BuildSmartContractTXNOptions extends SmartContractBaseTXNOption
 
 export interface CreateSmartContractTXNOptions extends BuildSmartContractTXNOptions {
   /** Private key for signing the transaction */
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
 }
 
 
@@ -147,11 +147,9 @@ export async function createSmartContractTXN(
   });
 
   const { privateKeyBase58, ...unsignedOptions } = options;
-  const deployTxn = await buildSmartContractTXN(unsignedOptions);
+  const deployTxn = await buildSmartContractTXN(optionsForSigner(unsignedOptions, privateKeyBase58));
 
-  signWithKey(deployTxn, privateKeyBase58, options.publicKeyBase58Identifier);
-
-  return deployTxn;
+  return signBuiltTransaction(deployTxn, privateKeyBase58, options.publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 /**

@@ -26,6 +26,7 @@ service TXNService{
     rpc BurnSBT(BurnSBTTXN) returns (google.protobuf.Empty);
     rpc Allowance(AllowanceTXN) returns (google.protobuf.Empty);
     rpc ProposalCancel(ProposalCancelTXN) returns (google.protobuf.Empty);
+    rpc RegisterWallet(WalletRegistration) returns (google.protobuf.Empty);
 }
 
 enum TXN_STATUS{
@@ -74,6 +75,7 @@ enum TXN_STATUS{
     SMART_CONTRACT_PANIC = 42;
     SMART_CONTRACT_CRASH = 43;
     INVALID_CONTRACT_ID = 44;
+    SMART_CONTRACT_OUTPUT_TOO_LARGE = 45;
 }
 enum TRANSACTION_TYPE
 {
@@ -102,6 +104,7 @@ enum TRANSACTION_TYPE
     SMART_CONTRACT_INSTANTIATE_TYPE = 22;
     ALLOWANCE_TYPE = 23;       
     PROPOSAL_CANCEL_TYPE = 24;
+    REGISTER_WALLET_TYPE = 25;
 }
 //ENUMS
 enum LANGUAGE{
@@ -136,6 +139,7 @@ enum GOVERNANCE_TYPE{
     STAGGERED = 2; //Every proposal has the same voting period length and starts when proposal is made (in days)
     ADAPTIVE = 3;  //Every proposal has its own specified voting period (in days)
     REMOVE = 4;    //CHANGE - Remove governance from contract
+    GRANULAR = 5;  //Proposal-specific electorate, voting instrument, rules and timing
 }
 enum CONTRACT_TYPE{
     TOKEN = 0;
@@ -204,6 +208,17 @@ message PreGovernance{
     uint32 threshold = 3;         //Minimum participation; 10000 = 100%
     uint32 regular_quorum = 4;    //Minimum supporting share; 10000 = 100%
 }
+// One whole voting instrument unit contributes numerator/denominator
+// governance units. Both fields are positive uint64 values; conversion uses
+// integer arithmetic and floors once per instrument and ballot choice.
+message VotingInstrumentRatio{
+    string contract_id = 1;
+    uint64 numerator = 2;
+    uint64 denominator = 3;
+}
+message CouncilStages{
+    repeated PreGovernance stages = 1; //Additional ordered reviews; a present wrapper must contain at least one stage
+}
 message Governance{
     reserved 3;
     reserved "fast_quorum";
@@ -220,6 +235,10 @@ message Governance{
     optional google.protobuf.Timestamp start_timestamp = 12; //Start date of the contract, year-month-day-hour parsed. Needs to be present for staged and cycle
     optional uint32 max_approved = 13;                  //only allowed in CYCLE governance type, this is the max number of proposals that can be approved in a cycle (if 0, all proposals will be approved)
     optional PreGovernance pre_governance = 14;     //Optional council review before regular governance
+    repeated VotingInstrumentRatio voting_ratio = 15; //Exactly one per regular voting_instrument
+    repeated PreGovernance pre_governance_stages = 16; //Ordered council reviews; mutually exclusive with pre_governance
+    repeated PreGovernance post_governance_stages = 17; //Optional ordered council reviews after public approval, before execution
+    bool allow_proposal_councils = 18; //Allow proposals to append PRE/POST stages; mandatory contract reviews remain required
 }
 message Stage{
     uint32 length = 1;
@@ -314,15 +333,71 @@ message BaseTXN{
 //The sponsor signs the entire user-signed txn (user signature included) and provides their
 //own nonce. The validator's fee_payer.h allowlist controls eligible txn types.
 message FeePayer{
-    PublicKey public_key = 1; //sponsor's public key (single user key in v1)
+    PublicKey public_key = 1; // Registered single-key sponsor wallet.
     bytes signature = 2;      //sponsor's signature over the user-signed txn (hash + this signature cleared)
     uint64 nonce = 3;         //sponsor's own nonce (replay protection on the sponsor wallet)
 }
 message PublicKey{
+    // Historical wire fields. Fresh-genesis validators reject single and multi.
     bytes single = 1;
     MultiKey multi = 2;
     optional bytes smart_contract_auth = 3;
     optional bytes governance_auth = 4;  //
+    optional bytes wallet_address = 5;
+    repeated WalletWitness witnesses = 6;
+    // Valid only as an inherited RestrictedKey entry.
+    optional string parent_contract = 7;
+}
+
+enum FalconVariant {
+    FALCON_UNSPECIFIED = 0;
+    FALCON_512 = 1;
+    FALCON_1024 = 2;
+}
+enum WalletHash {
+    WALLET_HASH_UNSPECIFIED = 0;
+    BLAKE3_256 = 1;
+    BLAKE3_512 = 2;
+    BLAKE3_1024 = 3;
+    BLAKE3_2048 = 4;
+    BLAKE3_4096 = 5;
+    BLAKE3_9001 = 6;
+    SHA3_256 = 7;
+    SHA3_512 = 8;
+    SHAKE256_1024 = 9;
+    SHAKE256_2048 = 10;
+    SHAKE256_4096 = 11;
+}
+message FalconPublicKey {
+    FalconVariant variant = 1;
+    bytes raw_public_key = 2;
+}
+message WalletWitness {
+    uint32 slot = 1;
+    bytes signature = 2;
+}
+message WalletMember {
+    uint32 class_id = 1;
+    bytes wallet_address = 2;
+}
+message WalletThreshold {
+    uint32 class_id = 1;
+    uint32 required = 2;
+}
+message WalletPattern {
+    repeated WalletThreshold thresholds = 1;
+}
+message WalletPolicy {
+    repeated WalletMember members = 1;
+    repeated WalletPattern patterns = 2;
+}
+message WalletRegistration {
+    BaseTXN base = 1;
+    WalletHash wallet_hash = 2;
+    oneof identity {
+        FalconPublicKey falcon = 3;
+        WalletPolicy policy = 4;
+    }
 }
 message GovernanceAuth
 {
@@ -468,6 +543,14 @@ message GovernanceVote{
     bytes proposal_id = 3;
     optional bool support = 4;
     optional uint32 support_option = 5;
+    optional uint32 pre_governance_stage = 6; //Zero-based intended council step; required for array governance
+    optional uint32 post_governance_stage = 7; //Zero-based intended post-review step; mutually exclusive with pre_governance_stage
+}
+message GranularGovernance{
+    optional uint32 threshold = 1;       //Distinct participating wallets; 10000 = 100%
+    optional uint32 regular_quorum = 2;  //Binary YES share; validated but bypassed for options
+    repeated bytes voter_wallets = 3;   //Exact canonical wallet identities, including wider formats
+    optional string voting_instrument = 4; //Absent means one vote per wallet
 }
 message GovernanceProposal{
     BaseTXN base = 1;
@@ -481,6 +564,9 @@ message GovernanceProposal{
     repeated GovernanceTXN governance_txn = 9;
     repeated GovernanceOptionTXNS governance_option_txns = 10;
     ProposalType proposal_type = 11;
+    GranularGovernance granular = 12;
+    optional CouncilStages additional_pre_governance = 13;
+    optional CouncilStages additional_post_governance = 14;
 }
 message GovernanceOptionTXNS{
     repeated GovernanceTXN governance_txn = 1;
@@ -539,7 +625,7 @@ message AttestationKey {
 //key = generated public key
 message Validator{
     reserved 5;                //was staked_contract_ids; staking is KAL-only
-    PublicKey public_key = 1;  //original public key
+    PublicKey public_key = 1;  // Registered owner wallet.
     string host = 2;
     string client_port = 3; 
     string validator_port = 4; 
@@ -553,13 +639,16 @@ message Validator{
     // Finalized block time of the last accepted heartbeat or produced block.
     // User-supplied registration values are ignored by consensus.
     uint64 last_heartbeat_time_seconds = 13;
+    // Finalized time of the last accepted signed heartbeat, independent of
+    // implicit producer liveness and preserved across owner lifecycle changes.
+    uint64 last_signed_heartbeat_time_seconds = 14;
 }
 message ValidatorRegistration{
     BaseTXN base = 1;
     Validator validator = 2;
     bool register = 3;
-    PublicKey generated_public_key = 4;
-    bytes generated_signature = 5;      //signature of the generated public key (signing txn hash)
+    PublicKey generated_public_key = 4; // Registered operational wallet for this assignment.
+    bytes generated_signature = 5;      // Operator co-signature over the same unsigned assignment as the owner.
 }
 message ValidatorHeartbeat{
     BaseTXN base = 1;
@@ -588,9 +677,9 @@ message ProposalResult{
     BaseTXN base = 1;
     string contract_id = 2;     //contract_id of the proposal
     bytes proposal_id = 3;      //proposal_id of the proposal
-    optional string support_cur_equiv = 4; //cur_equiv of all the support votes (multiple contract_ids)
-    optional string against_cur_equiv = 5; //cur_equiv of all the against votes (multiple contract_ids)
-    repeated string option_cur_equiv = 6;  //cur_equiv of all the option votes (multiple contract_ids)
+    optional string support_cur_equiv = 4; //Regular results: integer governance units; pre-governance uses its council tally
+    optional string against_cur_equiv = 5; //Regular results: integer governance units; pre-governance uses its council tally
+    repeated string option_cur_equiv = 6;  //Integer governance units, summed after per-instrument conversion
     optional Votes support_votes = 7;   //raw support votes of each contract_id
     optional Votes against_votes = 8;   //raw against votes of each contract_id
     repeated Votes option_votes = 9;    //raw option votes of each contract_id
@@ -599,6 +688,7 @@ message ProposalResult{
     uint32 stage = 12;
     optional bool proposal_cut = 14;      //CHANGE - if staged and proposal is accepted to next stage (top x yes votes / and passing)
     optional bool pre_governance = 15;    //Result of the council-review phase
+    optional bool post_governance = 16;   //Result of post-review; cannot also be pre_governance
 }
 message AllowanceTXN{
     BaseTXN base = 1;
@@ -611,9 +701,11 @@ message AllowanceTXN{
     google.protobuf.Timestamp start_time = 9;        //Start time of the allowance.
     bool authorize = 10;                             //true to authorize, false to de-authorize
 }
-// One ordered, independently replayable result for each selected child of an
-// approved governance proposal. A hard rejection has no fee receipt and does
-// not consume a new child or sponsor nonce.
+// Ordered, independently replayable results for selected children of an
+// approved governance proposal. An intrinsically oversized sibling group has
+// one compact terminal marker at its first child; its authenticated count and
+// digest cover every sibling without per-child outcome rows. A hard rejection
+// has no fee receipt and consumes no new child or sponsor nonce.
 enum GovernanceChildDisposition {
     GOVERNANCE_CHILD_UNSPECIFIED = 0;
     GOVERNANCE_CHILD_RECEIPT_SUCCESS = 1;
@@ -624,6 +716,9 @@ enum GovernanceChildDisposition {
     GOVERNANCE_CHILD_CANNOT_PAY_FEE = 6;
     // Deterministic, child-byte-only parameter rejection before any receipt.
     GOVERNANCE_CHILD_INVALID_PARAMETERS = 7;
+    // One compact marker at the first sibling covers an intrinsically
+    // oversized approved branch. No sibling executes or pays a fee.
+    GOVERNANCE_CHILD_GROUP_OUTPUT_TOO_LARGE = 8;
 }
 
 message GovernanceChildOutcome {
@@ -635,6 +730,10 @@ message GovernanceChildOutcome {
     GovernanceChildDisposition disposition = 6;
     // Present only for a child with an ordinary TXNStatusFees receipt.
     optional uint32 receipt_index = 7;
+    // Present only on GROUP_OUTPUT_TOO_LARGE. The marker covers this exact
+    // ordered sibling group, including siblings without individual outcomes.
+    optional uint32 terminal_group_child_count = 8;
+    optional bytes terminal_group_sha256 = 9;
 }
 
 message TXNS{
@@ -666,6 +765,7 @@ message TXNS{
     repeated AllowanceTXN allowance_txns = 27;
     repeated ProposalCancelTXN proposal_cancel_txns = 28;
     repeated GovernanceChildOutcome governance_child_outcomes = 29;
+    repeated WalletRegistration wallet_registrations = 30;
 }
 
 message Token{
@@ -709,6 +809,7 @@ message TXNStatusFees{
     // Wallet actually debited for a governance proposal's locked fee remainder.
     // It may be a signed sponsor or a smart-contract fee wallet.
     optional bytes proposal_escrow_payer_wallet = 20;
+    repeated VotingInstrumentRatio accepted_voting_ratio = 21; //Derived from signed governance settings at proposal acceptance
 }
 message ProposalContract
 {
@@ -743,6 +844,7 @@ message TXNWrapper{
         SmartContractInstantiateTXN smart_contract_instantiate_txn = 22;
         AllowanceTXN allowance_txn = 23;
         ProposalCancelTXN proposal_cancel_txn = 28;
+        WalletRegistration wallet_registration = 32;
     }
     
     TRANSACTION_TYPE txn_type = 24;

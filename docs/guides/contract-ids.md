@@ -7,7 +7,7 @@ group: Guides
 
 A Kalvora contract ID is the canonical Base58 encoding of a 32-byte BLAKE3
 digest followed by a 4-byte BLAKE3 checksum (36 bytes decoded). Wallet
-addresses are a different encoding. Do not pass an address to these helpers.
+addresses use the full selected hash. A contract creator's wallet address enters ordinary ID derivation as raw bytes.
 
 ```typescript
 import {
@@ -46,11 +46,15 @@ The vanity nonce is not `BaseTXN.nonce`.
 
 An ordinary id commits the creator, a vanity nonce, and a hash of the
 immutable contract fields. `buildContractTXN` (`buildInstrumentContract`)
-does this when you pass `vanityNonce` and omits `contractId`. If you pass
+does this when you pass `vanityNonce` and omit `contractId`. If you pass
 both, the derived id must match `contractId`.
 
 ```typescript
-import { buildContractTXN, CONTRACT_TYPE } from 'kalvora.js';
+import { buildContractTXN, CONTRACT_TYPE, FalconWallet, proto, signAndFinalize } from 'kalvora.js';
+import { create } from '@bufbuild/protobuf';
+
+// Restore the registered signer from your protected key store.
+const owner = FalconWallet.restore(await protectedKeyStore.load());
 
 const unsigned = await buildContractTXN({
   contractVersion: 1000000n,
@@ -58,21 +62,25 @@ const unsigned = await buildContractTXN({
   name: 'My Token',              // [A-Za-z0-9 ]{3,200}
   type: CONTRACT_TYPE.TOKEN,
   vanityNonce: 1n,
-  publicKeyBase58Identifier: publicKey,
-  coinDenomination: { denominationName: 'parts', amount: '1000000000' }
+  publicKeyBase58Identifier: owner.walletAddress,
+  maxSupply: '1000000000000',
+  coinDenomination: create(proto.txn.CoinDenominationSchema, { denominationName: 'parts', amount: '1000000000' }),
+  grpcConfig: { endpoint: operatorGrpcWebEndpoint, trustedOperatorAddress, transactionContext: { chainId: owner.chainId } }
 });
-unsigned.contractId;             // the derived Base58 id
+const signed = await signAndFinalize(unsigned, owner);
+signed.contractId;              // the derived Base58 ID
 ```
 
 `symbol` and the optional denomination amount are part of the id preimage.
 `deriveContractDataHash` and `deriveOrdinaryContractId` expose the same
 steps when you need the id before building the transaction.
-`CREATOR_AUTHORIZATION` is `SINGLE_KEY` (1), `SMART_CONTRACT` (2), or
-`GOVERNANCE` (3). `CREATOR_KEY_ALGORITHM` is `NONE` (0), `ED25519` (1), or
-`ED448` (2). Creator bytes are the exact `base.public_key` bytes: for a
-user key that is the `A_` or `B_` prefix plus the raw public key.
+For a registered single-key or policy creator, use `CREATOR_AUTHORIZATION.WALLET_ADDRESS` (4),
+`CREATOR_KEY_ALGORITHM.NONE` (0), and the complete decoded address as
+`creatorAuthorizationBytes`. The two internal creator kinds use `SMART_CONTRACT` (2)
+or `GOVERNANCE` (3), algorithm `NONE`, and the exact UTF-8 authority identifier.
+The historical `SINGLE_KEY` form identifies contracts created under the earlier Ed key scheme.
 
-Token contracts require `coinDenomination`. NFT and SBT contracts must leave
+Token contracts require `maxSupply` and `coinDenomination`. The SDK's NFT and SBT builders leave
 `coinDenomination`, `premintWallets`, `expenseRatio`, and `contractFees`
 unset. At most 50 restricted keys are accepted. A calculated creation fee
 of exactly `"1"` is refused.

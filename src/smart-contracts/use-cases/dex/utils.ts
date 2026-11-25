@@ -9,6 +9,7 @@ import type { SmartContractExecuteTXN } from '../../../../proto/generated/txn_pb
 import { getTokenInfoForSingle } from '../../../api/handler/token-info/service.js';
 import { PROTONET_GRPC_CONFIG } from '../../../shared/utils/testing-defaults/index.js';
 import { toSmallestUnits } from '../../../shared/utils/unified-amount-conversion.js';
+import type { SigningKey } from '../../../sign/builder.js';
 import type { AmountInput, GRPCConfig } from '../../../types/index.js';
 import { createSmartContractExecuteTXN, ParamType, type ExecuteParameter } from '../../execute/index.js';
 
@@ -83,7 +84,7 @@ export async function createDexTransaction(
   actionName: string,
   parameterValue: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   feeId: string,
   options: DexOptions
 ): Promise<SmartContractExecuteTXN> {
@@ -104,7 +105,7 @@ export async function createDexTransaction(
     {
       ...options,
       feeId,
-      ...(options.feeAmountUsd !== undefined && { feeAmountParts: options.feeAmountUsd }),
+      ...(options.feeAmountParts === undefined && options.feeAmountUsd !== undefined && { feeAmountParts: options.feeAmountUsd }),
       grpcConfig
     }
   );

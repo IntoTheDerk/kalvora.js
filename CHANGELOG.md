@@ -9,12 +9,9 @@ release may change APIs; pin an exact version.
 
 ### Changed
 
-- **Breaking:** sync the 2026-10-27 clean-genesis network protos and regenerate
-  bindings. Configure the exact trusted chain ID with
-  `configureTransactionContext` before building or signing. `kal_main` and
-  `kal_proto` are literal wire identifiers; they are never hashed or padded.
-  Signers validate
-  the pinned chain, signature domain, and concrete transaction type.
+- Migrate fresh-genesis wallets to registered Falcon addresses. Derive the wire chain ID from the network name and final genesis hash. The SDK supports registrations, single-key and policy spends, sponsorship and two-role validator assignments.
+- Add registry and governance queries, signed response verification, V2 wallet-created contract IDs, typed grants and safe sends. See the [implementation overview and acceptance status](./docs/protocol-migration-overview-2026-11-25.md).
+
 - **Breaking:** remove Quash APIs and retired restricted-key delay/quash and
   contract quash-threshold fields. Legacy signed transactions must be rebuilt
   and signed again.

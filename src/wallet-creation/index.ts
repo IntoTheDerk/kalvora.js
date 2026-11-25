@@ -60,4 +60,5 @@ export {
   KEY_TYPE_PREFIXES, HASH_TYPE_PREFIXES, isValidKeyType, isValidHashType
 } from './constants.js';
 
+export * from './falcon.js';
 export default WalletFactory;

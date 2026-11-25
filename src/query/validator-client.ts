@@ -28,7 +28,7 @@ import { create, toBinary } from '@bufbuild/protobuf';
 import type { Client } from '@connectrpc/connect';
 
 import { TimestampSchema } from '../../proto/generated/google/protobuf/timestamp_pb.js';
-import { PublicKeySchema, type PublicKey, type Validator } from '../../proto/generated/txn_pb.js';
+import { type PublicKey, type Validator } from '../../proto/generated/txn_pb.js';
 import {
   BalanceRequestSchema,
   CheckpointInfoRequestSchema,
@@ -37,7 +37,7 @@ import {
   ValidatorSyncRequestSchema
 } from '../../proto/generated/validator_pb.js';
 import { createClient } from '../grpc/client-factory.js';
-import { getPublicKeyBytes } from '../shared/crypto/address-utils.js';
+import { signerPublicKey } from '../shared/tx/base.js';
 import { parseAddress, requireContractId, toTimestampInit } from '../shared/tx/standard.js';
 import { bytesToHex } from '../shared/utils/byte-utils.js';
 import type { KalvoraSigner } from '../sign/signer.js';
@@ -117,7 +117,7 @@ export class ValidatorQueryClient {
    */
   async getCheckpointInfo(signer: KalvoraSigner, now: Date = new Date()): Promise<CheckpointInfo> {
     const request = create(CheckpointInfoRequestSchema, {
-      publicKey: create(PublicKeySchema, { single: new Uint8Array(getPublicKeyBytes(signer.publicKey)) }),
+      publicKey: signerPublicKey(signer.walletAddress ?? signer.publicKey),
       timestamp: create(TimestampSchema, toTimestampInit(now, 'now'))
     });
     request.signature = await signer.sign(toBinary(CheckpointInfoRequestSchema, request));
@@ -143,7 +143,7 @@ export class ValidatorQueryClient {
    */
   async syncValidatorList(signer: KalvoraSigner): Promise<Validator[]> {
     const request = create(ValidatorSyncRequestSchema, {
-      publicKey: create(PublicKeySchema, { single: new Uint8Array(getPublicKeyBytes(signer.publicKey)) })
+      publicKey: signerPublicKey(signer.walletAddress ?? signer.publicKey)
     });
     request.signature = await signer.sign(toBinary(ValidatorSyncRequestSchema, request));
     const response = await this.raw.syncValidatorList(request);

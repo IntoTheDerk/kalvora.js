@@ -20,8 +20,10 @@ vi.mock('../../../shared/fee-calculators/universal-fee-calculator.js', () => ({
   }
 }));
 
+import { UniversalFeeCalculator } from '../../../shared/fee-calculators/universal-fee-calculator.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../shared/network/constants.js';
 import { ED25519_TEST_KEYS } from '../../../test-utils/keys.test.js';
+import { FalconWallet } from '../../../wallet-creation/falcon.js';
 import {
   buildSmartContractExecuteTXN,
   createSmartContractExecuteTXN,
@@ -110,6 +112,25 @@ describe('buildSmartContractExecuteTXN', () => {
 });
 
 describe('createSmartContractExecuteTXN', () => {
+  it('prices the actual owner proof and signs both allowances and gas cap on the wallet chain', async () => {
+    const signer = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: '11'.repeat(32) });
+    const allowances = [{ contractId: KALVORA_NATIVE_TOKEN, allowedAmount: '145' }];
+    const txn = await createSmartContractExecuteTXN('swap', 0, 'execute', [], signer.walletAddress, signer, {
+      nonce: 1, allowances, gasFeeInUsd: 1
+    });
+    expect(UniversalFeeCalculator.calculateFee).toHaveBeenCalledWith(expect.objectContaining({
+      gasFeeInUsd: 1, proofLayout: { owner: signer.variant }
+    }));
+    expect(txn.base?.chainId).toEqual(signer.chainId);
+    expect(txn.base?.signature?.length).toBe(666);
+    expect(txn.base?.feeAmount).toBe('123');
+    expect(txn.allowances).toMatchObject(allowances);
+  });
+
+  it('rejects invalid USD gas budgets', async () => {
+    await expect(buildSmartContractExecuteTXN('swap', 0, 'execute', [], publicKey,
+      { nonce: 1, feeAmountParts: '10', gasFeeInUsd: -1 })).rejects.toThrow(/gasFeeInUsd/);
+  });
   it('signs and hashes a smart contract execute transaction', async () => {
     const txn = await createSmartContractExecuteTXN(
       'hello_contract',

@@ -14,10 +14,12 @@
 
 import bs58 from 'bs58';
 
+
 import { createHashChain } from '../../wallet-creation/hash-utils.js';
 
 import { KEY_TYPE, HASH_TYPE, KEY_TYPE_PREFIXES, HASH_TYPE_PREFIXES, SPECIAL_PREFIXES, isValidKeyType, isValidHashType } from './constants.js';
 import type { KeyType, HashType } from './constants.js';
+import { isWalletAddress } from './falcon-address.js';
 
 /**
  * Generate Kalvora address from public key and optional hash types
@@ -64,6 +66,8 @@ export function generateAddressFromPublicKey(publicKeyIdentifier: string): strin
   if (!publicKeyIdentifier || typeof publicKeyIdentifier !== 'string') {
     throw new Error('Public key identifier must be a non-empty string');
   }
+
+  if (isWalletAddress(publicKeyIdentifier)) return publicKeyIdentifier;
 
   // Extract the raw public key bytes from the identifier
   const lastUnderscoreIndex = publicKeyIdentifier.lastIndexOf('_');

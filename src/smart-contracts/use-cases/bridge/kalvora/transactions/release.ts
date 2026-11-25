@@ -18,6 +18,7 @@ import type {
 } from '../../../../../protocol/guardian-names.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../../execute/index.js';
 import type { ReleaseKalvoraOptions, MintSolOptions, CreateSolOptions } from '../types.js';
 import { BRIDGE_FUNCTIONS, createBridgeTransaction } from '../utils.js';
@@ -57,7 +58,7 @@ import { BRIDGE_FUNCTIONS, createBridgeTransaction } from '../utils.js';
 export async function releaseKalvora(
   toKalvoraAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: ReleaseKalvoraOptions
 ): Promise<SmartContractExecuteTXN> {
   if (!toKalvoraAddress) throw new Error('toKalvoraAddress is required');
@@ -104,7 +105,7 @@ export async function releaseKalvora(
 export async function releaseKalvoraAndSend(
   toKalvoraAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: ReleaseKalvoraOptions
 ): Promise<string> {
   const txn = await releaseKalvora(
@@ -133,7 +134,7 @@ export async function releaseKalvoraAndSend(
 export async function mintSol(
   toKalvoraAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: MintSolOptions
 ): Promise<SmartContractExecuteTXN> {
   if (!toKalvoraAddress) throw new Error('toKalvoraAddress is required');
@@ -182,7 +183,7 @@ export async function mintSol(
 export async function mintSolAndSend(
   toKalvoraAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: MintSolOptions
 ): Promise<string> {
   const txn = await mintSol(
@@ -211,7 +212,7 @@ export async function mintSolAndSend(
 export async function createSol(
   toKalvoraAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: CreateSolOptions
 ): Promise<SmartContractExecuteTXN> {
   if (!toKalvoraAddress) throw new Error('toKalvoraAddress is required');
@@ -264,7 +265,7 @@ export async function createSol(
 export async function createSolAndSend(
   toKalvoraAddress: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: CreateSolOptions
 ): Promise<string> {
   const txn = await createSol(

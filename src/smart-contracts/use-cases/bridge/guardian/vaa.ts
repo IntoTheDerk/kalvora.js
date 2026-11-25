@@ -32,7 +32,9 @@ import {
   type KalvoraGuardianPayload
 } from '../../../../protocol/guardian-names.js';
 import { logger } from '../../../../shared/monitoring/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import type { GRPCConfig } from '../../../../types/index.js';
+import type { CreateSmartContractExecuteOptions } from '../../../execute/index.js';
 import {
   buildReleaseToken2022Transaction,
   buildReleaseSplTransaction,
@@ -77,7 +79,7 @@ export interface SubmitVAAToSolanaResult {
   payload: SolanaPayload;
 }
 
-export interface SubmitVAAToKalvoraOptions {
+export interface SubmitVAAToKalvoraOptions extends Omit<CreateSmartContractExecuteOptions, 'grpcConfig'> {
   /** Original Solana transaction signature */
   txSignature: string;
   /** Guardian service gRPC config */
@@ -87,11 +89,7 @@ export interface SubmitVAAToKalvoraOptions {
   /** Kalvora signer public key (base58) */
   publicKeyBase58: string;
   /** Kalvora signer private key (base58) */
-  privateKeyBase58: string;
-  /** Optional manual fee amount in raw token parts (overrides auto-calculation) */
-  feeAmountParts?: string;
-  /** Optional gas fee in USD for smart contract execution */
-  gasFeeInUsd?: number;
+  privateKeyBase58: SigningKey;
   /** Optional fee contract ID (defaults to the bridged token if not specified) */
   feeId?: string;
   /** Optional: Retry VAA fetch with exponential backoff */
@@ -632,14 +630,14 @@ export async function submitVAAToSolana(
 export async function submitVAAToKalvora(
   options: SubmitVAAToKalvoraOptions
 ): Promise<SubmitVAAToKalvoraResult> {
-  const { txSignature, guardianConfig, kalvoraConfig, publicKeyBase58, privateKeyBase58, retryOptions } = options;
-  const { feeAmountParts } = options;
+  const { txSignature, guardianConfig, kalvoraConfig, publicKeyBase58, privateKeyBase58, retryOptions, ...execution } = options;
   
   // Import Kalvora functions dynamically to avoid circular dependencies
   const { releaseKalvoraAndSend, mintSolAndSend, createSolAndSend } = await import('../kalvora/transactions/index.js');
   
   // 1. Fetch VAA from Guardian
   const kalvoraPayload = await fetchKalvoraVAA(txSignature, guardianConfig, retryOptions);
+  const bridgeOptions = { ...execution, payload: kalvoraPayload, grpcConfig: kalvoraConfig };
   
   // 2. Build and send appropriate transaction based on payload type
   let txnHash: string;
@@ -653,13 +651,7 @@ export async function submitVAAToKalvora(
       release.kalWalletAddress,
       publicKeyBase58,
       privateKeyBase58,
-      {
-        payload: kalvoraPayload,
-        grpcConfig: kalvoraConfig,
-        ...(feeAmountParts !== undefined && { feeAmountParts }),
-        ...(options.gasFeeInUsd !== undefined && { gasFeeInUsd: options.gasFeeInUsd }),
-        ...(options.feeId !== undefined && { feeId: options.feeId })
-      }
+      bridgeOptions
     );
     operationType = 'release';
     break;
@@ -672,13 +664,7 @@ export async function submitVAAToKalvora(
       mint.kalWalletAddress,
       publicKeyBase58,
       privateKeyBase58,
-      {
-        payload: kalvoraPayload,
-        grpcConfig: kalvoraConfig,
-        ...(feeAmountParts !== undefined && { feeAmountParts }),
-        ...(options.gasFeeInUsd !== undefined && { gasFeeInUsd: options.gasFeeInUsd }),
-        ...(options.feeId !== undefined && { feeId: options.feeId })
-      }
+      bridgeOptions
     );
     operationType = 'mint';
     break;
@@ -691,13 +677,7 @@ export async function submitVAAToKalvora(
       contract.kalWalletAddress,
       publicKeyBase58,
       privateKeyBase58,
-      {
-        payload: kalvoraPayload,
-        grpcConfig: kalvoraConfig,
-        ...(feeAmountParts !== undefined && { feeAmountParts }),
-        ...(options.gasFeeInUsd !== undefined && { gasFeeInUsd: options.gasFeeInUsd }),
-        ...(options.feeId !== undefined && { feeId: options.feeId })
-      }
+      bridgeOptions
     );
     operationType = 'mint';
     break;

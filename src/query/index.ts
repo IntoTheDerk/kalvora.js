@@ -35,6 +35,9 @@ export {
 
 export {
   acceptSmartContractEvent,
+  eventSearchRequestDigest,
+  verifyOperatorResponse,
+  type RegisteredOperator,
   nextSmartContractEventSearchStart,
   verifySmartContractEventSignature,
   type AcceptedSmartContractEvent
@@ -62,6 +65,7 @@ export {
   findTransactionResult,
   formatScaled,
   listBlockTransactions,
+  listGovernanceChildOutcomes,
   parseUintString,
   partsToWhole,
   summarizeBlock,

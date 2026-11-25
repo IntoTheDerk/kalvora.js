@@ -30,6 +30,7 @@ import { validateKeyPair } from '../contract/shared/utils.js';
 import { submitTransaction } from '../grpc/transaction/transaction-client.js';
 import { createQueryClient } from '../query/api-client.js';
 import { generateAddressFromPublicKey, sanitizeAndDecodeAddress } from '../shared/crypto/address-utils.js';
+import type { ProofLayout } from '../shared/fee-calculators/proof-layout.js';
 import { UniversalFeeCalculator, type FeeConfigHelper } from '../shared/fee-calculators/universal-fee-calculator.js';
 import { logger } from '../shared/monitoring/index.js';
 import { KALVORA_NATIVE_TOKEN } from '../shared/network/constants.js';
@@ -37,7 +38,7 @@ import { buildStandardBaseTXN, getAddressAndNonce } from '../shared/tx/base.js';
 import { parseUint256 } from '../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { isValidContractId } from '../shared/utils/validation.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 import { assertCollectionType, assertItemFeeAuthorized, assertItemHeldBy } from './guards.js';
@@ -51,6 +52,9 @@ export interface StandardItemTXNOptions {
   memo?: string;
   /** Optional gRPC configuration */
   grpcConfig?: GRPCConfig;
+  proofLayout?: ProofLayout;
+  safeSendFeeScaled?: string;
+  nonNativeMultiplier?: number;
   /** Overestimate percentage for fee calculation (defaults to calculator setting) */
   overestimatePercent?: number;
   /** Optional nonce override. When provided, skips network nonce fetch. */
@@ -79,6 +83,8 @@ export interface ItemContractFeesInput {
 }
 
 export interface BuildItemizedMintOptions extends StandardItemTXNOptions {
+  /** Require a recipient registered in the finalized parent block. */
+  safeSend?: boolean;
   /** Contract ID for the NFT/SBT item collection */
   contractId: string;
   /** Item ID to mint */
@@ -101,10 +107,11 @@ export interface BuildItemizedMintOptions extends StandardItemTXNOptions {
 
 export interface CreateItemizedMintOptions extends BuildItemizedMintOptions {
   /** Private key in base58 format */
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
 }
 
 export interface BuildNFTTXNOptions extends StandardItemTXNOptions {
+  safeSend?: false;
   /** NFT contract ID */
   contractId: string;
   /** NFT item ID */
@@ -121,7 +128,7 @@ export interface BuildNFTTXNOptions extends StandardItemTXNOptions {
 
 export interface CreateNFTTXNOptions extends BuildNFTTXNOptions {
   /** Private key in base58 format */
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
 }
 
 export interface BuildBurnSBTTXNOptions extends StandardItemTXNOptions {
@@ -135,7 +142,7 @@ export interface BuildBurnSBTTXNOptions extends StandardItemTXNOptions {
 
 export interface CreateBurnSBTTXNOptions extends BuildBurnSBTTXNOptions {
   /** Private key in base58 format */
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
 }
 
 // ============================================================================
@@ -207,7 +214,7 @@ async function buildBaseForItemTXN(
   if (options.feeAmountParts !== undefined) baseParams.feeAmountParts = options.feeAmountParts;
   if (options.timestamp !== undefined) baseParams.timestamp = options.timestamp;
 
-  return buildStandardBaseTXN(baseParams, operation.slice(5));
+  return buildStandardBaseTXN({ ...baseParams, ...(options.grpcConfig?.transactionContext && { context: options.grpcConfig.transactionContext }) }, operation.slice(5));
 }
 
 function buildFeeOptions<T extends ItemizedMintTXN | NFTTXN | BurnSBTTXN>(
@@ -216,7 +223,10 @@ function buildFeeOptions<T extends ItemizedMintTXN | NFTTXN | BurnSBTTXN>(
 ): FeeConfigHelper<T> {
   const effectiveFeeId = options.feeId || KALVORA_NATIVE_TOKEN;
   return {
+    ...(options.proofLayout && { proofLayout: options.proofLayout }),
+    ...(options.nonNativeMultiplier !== undefined && { nonNativeMultiplier: options.nonNativeMultiplier }),
     protoObject: txn,
+    ...(options.safeSendFeeScaled !== undefined && { safeSendFeeScaled: options.safeSendFeeScaled }),
     tokenInfoMap: new Map(),
     baseFeeId: effectiveFeeId,
     ...(options.grpcConfig ? { grpcConfig: options.grpcConfig } : {}),
@@ -302,6 +312,10 @@ export async function buildItemizedMintTXN(
 
   const recipientAddress = sanitizeAndDecodeAddress(options.recipientAddress);
   const base = await buildBaseForItemTXN('buildItemizedMintTXN', options.publicKeyBase58Identifier, options);
+  if (options.safeSend !== undefined) {
+    if (typeof options.safeSend !== 'boolean') throw new Error('safeSend must be a boolean');
+    base.safeSend = options.safeSend;
+  }
   const parameters = buildParameters(options.parameters);
   const expiry = parseOptionalUint64(options.expiry, 'expiry');
   const validFrom = parseOptionalUint64(options.validFrom, 'validFrom');
@@ -352,10 +366,8 @@ export async function createItemizedMintTXN(
   });
 
   const { privateKeyBase58, ...unsignedOptions } = options;
-  const mintTxn = await buildItemizedMintTXN(unsignedOptions);
-  signWithKey(mintTxn, privateKeyBase58, options.publicKeyBase58Identifier);
-
-  return mintTxn;
+  const mintTxn = await buildItemizedMintTXN(optionsForSigner(unsignedOptions, privateKeyBase58));
+  return signBuiltTransaction(mintTxn, privateKeyBase58, options.publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 /**
@@ -381,6 +393,7 @@ export async function sendItemizedMintTXN(
 export async function buildNFTTXN(
   options: BuildNFTTXNOptions
 ): Promise<NFTTXN> {
+  if (options.safeSend) throw new Error('NFT transfer rejects safe_send');
   const itemId = validateItemIdentifiers(options.contractId, options.itemId);
   validatePublicKey(options.publicKeyBase58Identifier);
   if (!options.recipientAddress) throw new Error('recipientAddress is required');
@@ -437,10 +450,8 @@ export async function createNFTTXN(
   });
 
   const { privateKeyBase58, ...unsignedOptions } = options;
-  const nftTxn = await buildNFTTXN(unsignedOptions);
-  signWithKey(nftTxn, privateKeyBase58, options.publicKeyBase58Identifier);
-
-  return nftTxn;
+  const nftTxn = await buildNFTTXN(optionsForSigner(unsignedOptions, privateKeyBase58));
+  return signBuiltTransaction(nftTxn, privateKeyBase58, options.publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 /**
@@ -495,10 +506,8 @@ export async function createBurnSBTTXN(
   });
 
   const { privateKeyBase58, ...unsignedOptions } = options;
-  const burnTxn = await buildBurnSBTTXN(unsignedOptions);
-  signWithKey(burnTxn, privateKeyBase58, options.publicKeyBase58Identifier);
-
-  return burnTxn;
+  const burnTxn = await buildBurnSBTTXN(optionsForSigner(unsignedOptions, privateKeyBase58));
+  return signBuiltTransaction(burnTxn, privateKeyBase58, options.publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 /**

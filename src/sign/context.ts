@@ -2,7 +2,7 @@ import { TRANSACTION_TYPE, type BaseTXN } from '../../proto/generated/txn_pb.js'
 
 /** Trusted network identity, supplied by the operator through a trusted channel. */
 export interface TransactionContext {
-  /** Exact named chain ID or opaque configured wire bytes; explicit legacy hex pins remain supported. */
+  /** The derived 32-byte wire ID, supplied as bytes or hexadecimal. */
   chainId: Uint8Array | string;
 }
 
@@ -19,13 +19,12 @@ export function configureTransactionContext(context: TransactionContext | undefi
 }
 
 function parseChainId(value: TransactionContext['chainId']): Uint8Array {
-  if (value === 'kal_main' || value === 'kal_proto') return new TextEncoder().encode(value);
   if (typeof value === 'string' && /^(?:0x)?[0-9a-fA-F]{64}$/u.test(value)) {
     const hex = value.replace(/^0x/u, '');
     return Uint8Array.from({ length: 32 }, (_, i) => Number.parseInt(hex.slice(i * 2, i * 2 + 2), 16));
   }
-  if (value instanceof Uint8Array && value.length > 0 && value.length <= 64) return new Uint8Array(value);
-  throw new Error('chainId must be an exact kal_main/kal_proto identifier, bounded raw bytes, or an explicit legacy 32-byte hex pin');
+  if (value instanceof Uint8Array && value.length === 32) return new Uint8Array(value);
+  throw new Error('chainId must be a trusted 32-byte wire ID or its hexadecimal encoding');
 }
 
 const TYPES: Readonly<Record<string, TRANSACTION_TYPE>> = {
@@ -41,6 +40,7 @@ const TYPES: Readonly<Record<string, TRANSACTION_TYPE>> = {
   NFTTXN: TRANSACTION_TYPE.NFT_TYPE,
   ContractUpdateTXN: TRANSACTION_TYPE.UPDATE_CONTRACT_TYPE,
   ValidatorRegistration: TRANSACTION_TYPE.VALIDATOR_REGISTRATION_TYPE,
+  WalletRegistration: TRANSACTION_TYPE.REGISTER_WALLET_TYPE,
   ValidatorHeartbeat: TRANSACTION_TYPE.VALIDATOR_HEARTBEAT_TYPE,
   ProposalResult: TRANSACTION_TYPE.PROPOSAL_RESULT_TYPE,
   DelegatedTXN: TRANSACTION_TYPE.DELEGATED_VOTING_TYPE,

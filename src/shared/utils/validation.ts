@@ -10,6 +10,7 @@ import type {
   KeyType,
   HashType
 } from '../../types/index.js';
+import { isWalletAddress } from '../crypto/falcon-address.js';
 import { isKalvoraMintId, KALVORA_MINT_ID_ERROR } from '../network/constants.js';
 import { Decimal } from '../utils/amount-utils.js';
 
@@ -330,11 +331,10 @@ export class InputValidator {
       };
     }
     
-    // Check reasonable length (base58 addresses are typically 20-50 characters)
-    if (address.length < 20 || address.length > 50) {
+    if (!isWalletAddress(address)) {
       const error = createValidationError(
-        `Address length ${address.length} is invalid. Expected 20-50 characters`,
-        createErrorContext(context, 'validation', { address, length: address.length })
+        'Address must decode to a supported wallet hash width and padding',
+        createErrorContext(context, 'validation', { address })
       );
       
       if (options.throwOnError) {
@@ -749,44 +749,18 @@ export const isValidContractId = (contractId: string): boolean => {
 /**
  * Simple boolean address validation for Kalvora addresses
  * 
- * Validates that the address is properly base58 encoded and has reasonable length.
- * This is a lightweight validation for quick checks.
+ * Recognizes registered wallet address encodings and the protocol burn address.
  * 
  * @param address - Address to validate
  * @returns `true` if valid, `false` otherwise
  * 
  * @example
  * ```typescript
- * isValidAddress('5KJvsngHeMby884zrh6A5u6b4SqzZzAb'); // true
+ * isValidAddress('1'.repeat(32)); // true
  * isValidAddress('invalid'); // false
  * ```
  */
-export const isValidAddress = (address: string): boolean => {
-  if (!address || typeof address !== 'string') {
-    return false;
-  }
-
-  try {
-    // Basic base58 validation
-    if (!/^[1-9A-HJ-NP-Za-km-z]+$/.test(address)) {
-      return false;
-    }
-    
-    // Check reasonable length (base58 addresses are typically 20-50 characters)
-    if (address.length < 20 || address.length > 50) {
-
-      // Burn address is valid (base 58 encoded of :burn:)
-      if (address === 'W5jE3KNH'){
-        return true;
-      }
-      return false;
-    }
-
-    return true;
-  } catch {
-    return false;
-  }
-};
+export const isValidAddress = (address: string): boolean => address === 'W5jE3KNH' || isWalletAddress(address);
 
 export const validateAmount = (amount: unknown, options?: ValidationOptions & {
   minAmount?: AmountInput;

@@ -139,14 +139,40 @@ await buildGovernanceProposalTXN({
 
 ## Fees and offline builds
 
-When the contract has pre-governance, the required fee is
-`fee + ceil(fee / divisor)`. `divisor` is `stageLengthCount + 1`, or `2`
-when the contract has no stage lengths. `applyProposalStageFee` and
-`proposalAdditionalStageDivisor` apply that rule. The online builder does
-this after the normal fee calculation, so pass the governance snapshot and
-leave `feeAmountParts` unset.
+The builder counts all effective PRE and POST councils and adds
+`ceil(fee / divisor)` per council before the non-native multiplier. The
+divisor is `stageLengthCount + 1`, or `2` for an empty regular-stage list.
+Pass the contract's `preGovernanceStageCount`, `postGovernanceStageCount`,
+and `allowProposalCouncils` in the governance snapshot. Proposal-specific
+`additionalPreGovernance` and `additionalPostGovernance` arrays append to
+the mandatory councils. Omit unused arrays. Each effective phase allows 32
+councils. Signed ballots use the exact active zero-based index in
+`preGovernanceStage` or `postGovernanceStage` with binary `support`.
+Pass the current `getProposalDetail(...).firstPage` as the vote builder's
+`proposalDetail` option to bind the ballot to its active phase and step.
+
+Executable proposal branches retain their ordered, serialized child transactions.
+The builder checks the governance authority and each child's hash. Child hashes
+must be unique within a branch. Mutually exclusive options may share a child.
+Children can carry votes aimed at different proposals, including distinct PRE
+or POST steps. Each child's target contract evaluates that ballot at execution.
 
 To build offline, pass both `nonce` and `feeAmountParts`. `feeAmountParts`
 must already include the stage surcharge. The qualified-fee check is skipped
 offline; online, `feeId` must be the native token or a token from
 `getAuthorizedFeeTokens()`.
+
+## Granular and regular voting
+
+A GRANULAR proposal supplies `granular: { threshold, regularQuorum, voterWallets, votingInstrument? }`.
+Thresholds are in basis points from 1 through 10,000. Supply the complete raw
+addresses of 1–1,000 distinct voters and whole-second `startTimestamp` and
+`endTimestamp` values. The end must be after both the start and acceptance,
+within 90 days of acceptance. The offline builder uses its transaction time as
+the estimate. Each listed wallet votes directly. A recorded zero-weight vote
+still contributes to participation. Granular proposals use no councils.
+
+For regular governance, configure one positive uint64 ratio per voting instrument.
+Use `regularVotingUnits(aggregate, denomination, frozenRatio)` once per instrument
+and choice. Use denomination one for NFTs and SBTs. Read the ratios frozen at
+acceptance from the receipt.

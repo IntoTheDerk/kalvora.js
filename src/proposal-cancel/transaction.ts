@@ -11,6 +11,7 @@ import {
   ProposalCancelTXNSchema,
   type ProposalCancelTXN
 } from '../../proto/generated/txn_pb.js';
+import type { ProofLayout } from '../shared/fee-calculators/proof-layout.js';
 import {
   UniversalFeeCalculator,
   type FeeConfigHelper
@@ -21,11 +22,13 @@ import { buildStandardBaseTXN, getAddressAndNonce } from '../shared/tx/base.js';
 import { hexToBytes } from '../shared/utils/byte-utils.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
 import { isValidContractId } from '../shared/utils/validation.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 export interface BuildProposalCancelTXNOptions {
   grpcConfig?: GRPCConfig;
+  proofLayout?: ProofLayout;
+  nonNativeMultiplier?: number;
   nonce?: string | number | bigint;
   timestamp?: Date;
   memo?: string;
@@ -83,6 +86,7 @@ export async function buildProposalCancelTXN(
   }
 
   const base = buildStandardBaseTXN({
+    ...(options.grpcConfig?.transactionContext && { context: options.grpcConfig.transactionContext }),
     publicKeyId: publicKeyBase58Identifier,
     nonce,
     ...(options.memo !== undefined ? { memo: options.memo } : {}),
@@ -99,6 +103,8 @@ export async function buildProposalCancelTXN(
 
   const feeOptions: FeeConfigHelper<ProposalCancelTXN> = {
     contractId,
+    ...(options.proofLayout && { proofLayout: options.proofLayout }),
+    ...(options.nonNativeMultiplier !== undefined && { nonNativeMultiplier: options.nonNativeMultiplier }),
     protoObject: proposalCancel,
     tokenInfoMap: new Map(),
     baseFeeId: feeId,
@@ -125,7 +131,7 @@ export async function createProposalCancelTXN(
   contractId: string,
   proposalIdHex: string,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: CreateProposalCancelTXNOptions = {}
 ): Promise<ProposalCancelTXN> {
   if (!privateKeyBase58) {
@@ -136,10 +142,9 @@ export async function createProposalCancelTXN(
     contractId,
     proposalIdHex,
     publicKeyBase58Identifier,
-    options
+    optionsForSigner(options, privateKeyBase58)
   );
-  signWithKey(proposalCancel, privateKeyBase58, publicKeyBase58Identifier);
-  return proposalCancel;
+  return signBuiltTransaction(proposalCancel, privateKeyBase58, publicKeyBase58Identifier, options.grpcConfig?.transactionContext);
 }
 
 /** Submit a ProposalCancelTXN through the Kalvora transaction service. */

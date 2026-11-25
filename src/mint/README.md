@@ -5,7 +5,7 @@ wallet (rpc `TXNService.Mint`).
 
 ## Permission required
 
-The signer's public key must be a `RestrictedKey` on the contract with
+The registered signing wallet needs a contract grant with
 `mint = true`.
 
 ## Amount units
@@ -29,9 +29,9 @@ const txn = await createMintTXN(
     contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
     amount: '2500000000',
     recipientAddress: '<recipient base58 address>',
-    publicKey: 'A_<signer base58 public key>'
+    publicKey: wallet.walletAddress
   },
-  privateKey
+  wallet
 );
 const hash = await sendMintTXN(txn);
 ```
@@ -57,7 +57,4 @@ const txn = await buildMintTXN(input, {
 ```
 
 Other options (`memo`, `feeId`, interface fee, `grpcConfig`) come from the
-shared `StandardTXNOptions`. Leave `safeSend` unset: a mint with `safe_send`
-is rejected. Online builds also refuse a non-token contract and the bridge
-minter identities `sc_bridge_proxy_1` and `sc_zera_bridge_proxy_1`. Pass both
-`nonce` and `feeAmountParts` to skip those network checks.
+shared `StandardTXNOptions`. Set `safeSend: true` to require the destination's registration in the finalized parent. A new balance row can incur a separate fee.

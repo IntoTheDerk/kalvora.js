@@ -20,7 +20,7 @@ import {
   submitStandardTransaction,
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 /**
@@ -143,14 +143,14 @@ export async function buildRevokeTXN(
  */
 export async function createRevokeTXN(
   input: RevokeTXNInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: RevokeTXNOptions = {}
 ): Promise<RevokeTXN> {
-  if (typeof privateKey !== 'string' || privateKey.trim() === '') {
+  if (!privateKey || (typeof privateKey === 'string' && !privateKey.trim())) {
     throw new Error('privateKey is required');
   }
-  const txn = await buildRevokeTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+  const txn = await buildRevokeTXN(input, optionsForSigner(options, privateKey));
+  return signBuiltTransaction(txn, privateKey, input.publicKey, options.grpcConfig?.transactionContext);
 }
 
 /**

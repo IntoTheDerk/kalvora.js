@@ -19,6 +19,7 @@
 import type { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../execute/index.js';
 import type { SwapOptions, DexOptions } from '../types.js';
 import { createDexTransaction, resolveAmount } from '../utils.js';
@@ -43,7 +44,7 @@ import { createDexTransaction, resolveAmount } from '../utils.js';
 export async function swap(
   swapOpts: SwapOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: DexOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!swapOpts.tokenIn) throw new Error('tokenIn is required');
@@ -80,7 +81,7 @@ export async function swap(
 export async function swapAndSend(
   swapOpts: SwapOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: DexOptions = {}
 ): Promise<string> {
   const txn = await swap(swapOpts, publicKeyBase58Identifier, privateKeyBase58, options);

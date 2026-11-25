@@ -128,12 +128,22 @@ export {
   signCoinTXNWithKeys,
   getTransactionSigningBytes,
   getSponsorSigningBytes,
+  countersignTransaction,
+  type TransactionSigner,
+  type PolicySigner,
   finalizeTransactionHash,
   type KalvoraSigner,
   type CoinTXNKeyPair
 } from './src/sign/index.js';
+export type { ProofLayout, SignerProofLayout } from './src/shared/fee-calculators/proof-layout.js';
 
 export { configureTransactionContext, assertTransactionContext, type TransactionContext } from './src/sign/context.js';
+export { deriveChainId, type ChainName } from './src/shared/network/chain-id.js';
+export type { SigningKey } from './src/sign/builder.js';
+export { assertAuthenticationBudget } from './src/sign/resources.js';
+export { pinNetwork } from './src/client/networks.js';
+export * from './src/wallet-creation/falcon.js';
+export * from './src/wallet-registration/index.js';
 
 // ============================================================================
 // 6. TRANSACTIONS
@@ -229,6 +239,8 @@ export {
   sendGovernanceProposalTXN,
   applyProposalStageFee,
   proposalAdditionalStageDivisor,
+  validateGovernanceSettings,
+  regularVotingUnits,
   FORBIDDEN_OPTION_WORDS,
   TEXT_PROPOSAL_LIMITS,
   KALVORA_PROPOSAL_CONTEXT_SCHEMA,
@@ -274,6 +286,8 @@ export {
   sendSmartContractInstantiateTXN,
   type InstantiateParameter,
   type SmartContractAllowanceInput,
+  allowancesForDebits,
+  type SmartContractDebit,
   type BuildSmartContractInstantiateTXNOptions,
   type CreateSmartContractInstantiateTXNOptions,
   type SmartContractParameter
@@ -344,6 +358,7 @@ export {
   type WalletAdapterEvent,
   type WalletAdapterState,
   type WalletConnectionMode,
+  type ExternalSigningAccount,
   type CorrelatedSignResult,
   type KalvoraProvider,
   type WCSignClient,

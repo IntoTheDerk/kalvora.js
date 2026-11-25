@@ -26,7 +26,7 @@ import {
   submitStandardTransaction,
   type StandardTXNOptions
 } from '../shared/tx/standard.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 // ============================================================================
@@ -247,14 +247,14 @@ export async function buildDelegatedTXN(
  */
 export async function createDelegatedTXN(
   input: DelegatedInput,
-  privateKey: string,
+  privateKey: SigningKey,
   options: StandardTXNOptions = {}
 ): Promise<DelegatedTXN> {
-  if (typeof privateKey !== 'string' || privateKey === '') {
+  if (!privateKey || (typeof privateKey === 'string' && !privateKey.trim())) {
     throw new Error('privateKey is required');
   }
-  const txn = await buildDelegatedTXN(input, options);
-  return signWithKey(txn, privateKey, input.publicKey);
+  const txn = await buildDelegatedTXN(input, optionsForSigner(options, privateKey));
+  return signBuiltTransaction(txn, privateKey, input.publicKey, options.grpcConfig?.transactionContext);
 }
 
 /**

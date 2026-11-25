@@ -20,12 +20,12 @@ import type { CreateSmartContractExecuteOptions } from '../../execute/index.js';
 /**
  * Base options for all Kalvora DEX transactions
  */
-export interface DexOptions extends Omit<CreateSmartContractExecuteOptions, 'feeId' | 'feeAmountParts'> {
+export interface DexOptions extends CreateSmartContractExecuteOptions {
   /** gRPC configuration for network communication */
   grpcConfig?: GRPCConfig;
   /** Optional fee ID (defaults to `KALVORA_NATIVE_TOKEN`) */
   feeId?: string;
-  /** Optional fee amount in USD (skips auto-calculation if provided) */
+  /** @deprecated Historical name for raw fee-token parts. Use feeAmountParts, or gasFeeInUsd for a USD gas budget. */
   feeAmountUsd?: string;
 }
 

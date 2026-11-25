@@ -19,6 +19,7 @@
  */
 
 import type { KalvoraSigner } from '../sign/signer.js';
+import { falconSignatureSize, falconVariantFromKey, verifyFalconSignature } from '../wallet-creation/falcon.js';
 
 import {
   KALVORA_ADAPTER_STORAGE_KEYS,
@@ -28,6 +29,8 @@ import {
   KALVORA_PROVIDER_FLAG,
   KALVORA_PROVIDER_METHODS
 } from './constants.js';
+import { decodeFalconPublicKey, WalletSigningAccount, type ExternalSigningAccount } from './signing-account.js';
+
 
 // ============================================================================
 // TYPES
@@ -54,6 +57,7 @@ export interface CorrelatedSignResult {
   requestId: string;
   operation: 'sign' | 'sign-message';
   publicKey: string | null;
+  walletAddress?: string;
 }
 
 // ============================================================================
@@ -92,14 +96,12 @@ function fromBase64(base64: string): Uint8Array {
  * wallet provider (`window[KALVORA_INJECTED_PROVIDER_KEY]`). Used when embedded in a wallet's
  * dApp browser — no page redirects needed.
  */
-export class WalletSigner implements KalvoraSigner {
-  readonly publicKey: string;
+export class WalletSigner extends WalletSigningAccount implements KalvoraSigner {
   private readonly provider: KalvoraProvider;
 
-  constructor(publicKey: string, provider: KalvoraProvider) {
-    if (!publicKey) throw new Error('publicKey is required');
+  constructor(publicKey: string, provider: KalvoraProvider, account?: ExternalSigningAccount) {
+    super(publicKey, account);
     if (!provider) throw new Error('provider is required');
-    this.publicKey = publicKey;
     this.provider = provider;
   }
 
@@ -107,13 +109,14 @@ export class WalletSigner implements KalvoraSigner {
    * Sign transaction bytes by delegating to the external wallet provider.
    *
    * @param data - Serialized transaction bytes
-   * @returns Raw signature bytes (Ed25519 — 64 bytes)
+   * @returns Raw detached signature bytes for the connected account.
    */
   async sign(data: Uint8Array): Promise<Uint8Array> {
     const encoded = toBase64(data);
 
     const result = await this.provider.request(KALVORA_PROVIDER_METHODS.signTransaction, {
-      transaction: encoded
+      transaction: encoded,
+      ...(this.walletAddress && { walletAddress: this.walletAddress })
     }) as { signedTransaction?: string; signature?: string } | string;
 
     // The provider may return the signature directly or in an object
@@ -132,7 +135,7 @@ export class WalletSigner implements KalvoraSigner {
       throw new Error('Wallet provider returned empty signature');
     }
 
-    return decodeAndValidateSignature(sigBase64, this.publicKey);
+    return decodeAndValidateSignature(sigBase64, this.publicKey, data);
   }
 }
 
@@ -150,16 +153,20 @@ interface PendingSignRequest {
   requestId: string;
   timestamp: number;
   publicKey?: string;
+  walletAddress?: string;
+  message?: string;
+  transaction?: string;
 }
 
 function expectedSignatureLength(publicKey?: string): number | null {
   const unrestrictedKey = publicKey?.startsWith('r_') ? publicKey.slice(2) : publicKey;
   if (unrestrictedKey?.startsWith('A_')) return 64;
   if (unrestrictedKey?.startsWith('B_')) return 114;
+  if (publicKey && !publicKey.includes('_')) return falconSignatureSize(falconVariantFromKey(decodeFalconPublicKey(publicKey)));
   return null;
 }
 
-function decodeAndValidateSignature(encodedSignature: string, publicKey?: string): Uint8Array {
+export function decodeAndValidateSignature(encodedSignature: string, publicKey?: string, message?: Uint8Array): Uint8Array {
   let normalized: string;
   try {
     normalized = decodeURIComponent(encodedSignature);
@@ -182,6 +189,11 @@ function decodeAndValidateSignature(encodedSignature: string, publicKey?: string
     throw new Error(`Wallet returned an invalid signature length: expected ${expected} bytes`);
   }
 
+  if (publicKey && !publicKey.includes('_') &&
+      (!message || !verifyFalconSignature(decodeFalconPublicKey(publicKey), message, signature))) {
+    throw new Error('Wallet returned an invalid Falcon signature');
+  }
+
   return signature;
 }
 
@@ -199,14 +211,12 @@ function decodeAndValidateSignature(encodedSignature: string, publicKey?: string
  * handle the fact that `sign()` will not return during this page load.
  * The result is picked up on the next page load by the adapter.
  */
-export class DeepLinkSigner implements KalvoraSigner {
-  readonly publicKey: string;
+export class DeepLinkSigner extends WalletSigningAccount implements KalvoraSigner {
   private readonly deepLinkUrl: string;
   private readonly callbackUrl: string;
 
-  constructor(publicKey: string, deepLinkUrl: string, callbackUrl: string) {
-    if (!publicKey) throw new Error('publicKey is required');
-    this.publicKey = publicKey;
+  constructor(publicKey: string, deepLinkUrl: string, callbackUrl: string, account?: ExternalSigningAccount) {
+    super(publicKey, account);
     this.deepLinkUrl = deepLinkUrl;
     this.callbackUrl = callbackUrl;
   }
@@ -253,7 +263,8 @@ export class DeepLinkSigner implements KalvoraSigner {
         requestId,
         transaction: encoded,
         timestamp: Date.now(),
-        publicKey: this.publicKey
+        publicKey: this.publicKey,
+        walletAddress: this.walletAddress
       }));
     } catch {
       throw new Error('Deep-link signing requires sessionStorage to correlate the wallet callback');
@@ -264,7 +275,8 @@ export class DeepLinkSigner implements KalvoraSigner {
       txn: encoded,
       callback: this.callbackUrl,
       requestId,
-      publicKey: this.publicKey
+      publicKey: this.publicKey,
+      ...(this.walletAddress && { walletAddress: this.walletAddress })
     });
     const deepLink = this._formatDeepLink('sign', params);
     window.location.assign(deepLink);
@@ -296,7 +308,8 @@ export class DeepLinkSigner implements KalvoraSigner {
         requestId,
         message: encoded,
         timestamp: Date.now(),
-        publicKey: this.publicKey
+        publicKey: this.publicKey,
+        walletAddress: this.walletAddress
       }));
     } catch {
       throw new Error('Deep-link signing requires sessionStorage to correlate the wallet callback');
@@ -307,7 +320,8 @@ export class DeepLinkSigner implements KalvoraSigner {
       message: encoded,
       callback: this.callbackUrl,
       requestId,
-      publicKey: this.publicKey
+      publicKey: this.publicKey,
+      ...(this.walletAddress && { walletAddress: this.walletAddress })
     });
     const deepLink = this._formatDeepLink('sign-message', params);
     window.location.assign(deepLink);
@@ -346,12 +360,7 @@ export class DeepLinkSigner implements KalvoraSigner {
       throw new Error(error);
     }
 
-    return {
-      signature: decodeAndValidateSignature(sigBase64 as string, pending.publicKey),
-      requestId: pending.requestId,
-      operation: pending.type,
-      publicKey: pending.publicKey ?? null
-    };
+    return this._signatureResult(sigBase64 as string, pending);
   }
 
   /**
@@ -369,12 +378,19 @@ export class DeepLinkSigner implements KalvoraSigner {
     // Claim the correlated response before parsing so even a malformed result
     // cannot be replayed against the same signing request.
     this._removePendingRequest();
-    const signature = decodeAndValidateSignature(encodedSignature, pending.publicKey);
+    return this._signatureResult(encodedSignature, pending);
+  }
+
+  private static _signatureResult(encodedSignature: string, pending: PendingSignRequest): CorrelatedSignResult {
+    const payload = pending.type === 'sign' ? pending.transaction : pending.message;
+    const signature = decodeAndValidateSignature(encodedSignature, pending.publicKey,
+      typeof payload === 'string' ? fromBase64(payload) : undefined);
     return {
       signature,
       requestId: pending.requestId,
       operation: pending.type,
-      publicKey: pending.publicKey ?? null
+      publicKey: pending.publicKey ?? null,
+      ...(pending.walletAddress && { walletAddress: pending.walletAddress })
     };
   }
 

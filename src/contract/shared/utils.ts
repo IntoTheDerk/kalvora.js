@@ -3,9 +3,13 @@
  */
 
 import { GOVERNANCE_TYPE, type Governance, type RestrictedKey } from '../../../proto/generated/txn_pb.js';
+import { validateGovernanceSettings } from '../../proposal/shape.js';
+import { isCanonicalContractId } from '../../protocol/contract-id.js';
 import { generateAddressFromPublicKey } from '../../shared/crypto/address-utils.js';
+import { isWalletAddressBytes } from '../../shared/crypto/falcon-address.js';
 import { toSmallestUnits } from '../../shared/utils/unified-amount-conversion.js';
 import { isValidContractId } from '../../shared/utils/validation.js';
+import type { SigningKey } from '../../sign/builder.js';
 import type { AmountInput } from '../../types/index.js';
 
 /**
@@ -22,16 +26,42 @@ export function validateCurrentContractFields(options: {
   if ('quashThreshold' in options) {
     throw new Error('quashThreshold is retired and must not be supplied');
   }
-  for (const key of options.restrictedKeys ?? []) {
+  const keys = options.restrictedKeys ?? [];
+  if (keys.length > 50) throw new Error('restrictedKeys cannot exceed 50');
+  let parents = 0;
+  let directRecovery = false;
+  for (const key of keys) {
     for (const field of ['timeDelay', 'global', 'quash']) {
       if (field in key) {
         throw new Error(`restrictedKeys.${field} is retired and must not be supplied`);
       }
     }
+    const id = key.publicKey;
+    if (!id || id.single.length || id.multi || id.witnesses.length ||
+        [id.parentContract, id.walletAddress, id.smartContractAuth, id.governanceAuth].filter(value => value !== undefined).length !== 1) {
+      throw new Error('Each restricted key must have exactly one typed authority and no witnesses');
+    }
+    if (id.walletAddress !== undefined && !isWalletAddressBytes(id.walletAddress)) throw new Error('Invalid grant wallet address');
+    if (id.governanceAuth !== undefined) {
+      const name = new TextDecoder().decode(id.governanceAuth);
+      if (!name.startsWith('gov_') || !isCanonicalContractId(name.slice(4))) throw new Error('Invalid governance authority');
+    }
+    if (id.smartContractAuth !== undefined && !/^sc_[A-Za-z0-9_]+_(?:0|[1-9][0-9]*)$/u.test(new TextDecoder().decode(id.smartContractAuth))) {
+      throw new Error('Invalid smart contract authority');
+    }
+    if (id.parentContract !== undefined) {
+      if (!isCanonicalContractId(id.parentContract)) throw new Error('Invalid parent contract ID');
+      parents++;
+    } else if (key.updateContract) {
+      directRecovery = true;
+    }
   }
+  if (parents > 1) throw new Error('Only one parent contract is allowed');
+  if (parents && !directRecovery) throw new Error('An inherited grant requires a direct update_contract recovery grant');
   if (options.governance?.type === GOVERNANCE_TYPE.REMOVE) {
     throw new Error('Governance REMOVE is disabled by the current network consensus policy');
   }
+  if (options.governance) validateGovernanceSettings(options.governance);
 }
 
 export function validateCreateContractOptions(options: {
@@ -89,7 +119,7 @@ export function validateUpdateContractOptions(options: {
  */
 export function validateKeyPair(options: {
   publicKeyBase58Identifier: string;
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
 }): void {
   if (!options.publicKeyBase58Identifier) {
     throw new Error('Public key identifier is required');

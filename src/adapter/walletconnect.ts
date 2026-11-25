@@ -35,6 +35,9 @@
 import { KALVORA_PROTONET_NETWORK } from '../shared/network/constants.js';
 import type { KalvoraSigner } from '../sign/signer.js';
 
+import { WalletSigningAccount, type ExternalSigningAccount } from './signing-account.js';
+import { decodeAndValidateSignature } from './wallet-signer.js';
+
 // ============================================================================
 // Kalvora NAMESPACE
 // ============================================================================
@@ -147,7 +150,7 @@ export interface KalvoraWCSignMessageResult {
 /** Response from the Kalvora WC get-accounts method (`KALVORA_WC_METHODS[0]`) */
 export interface KalvoraWCGetAccountsResult {
   accounts: Array<{
-    publicKey: string;  // Kalvora public key identifier (e.g. "A_<base58>")
+    publicKey: string;  // Complete Base58 Falcon key or a legacy Ed identifier
     address: string;    // Kalvora address
   }>;
 }
@@ -198,8 +201,7 @@ function fromBase64(b64: string): Uint8Array {
  * const hash = await sendCoinTXN(signed);
  * ```
  */
-export class WalletConnectSigner implements KalvoraSigner {
-  readonly publicKey: string;
+export class WalletConnectSigner extends WalletSigningAccount implements KalvoraSigner {
   private readonly _client: WCSignClient;
   private readonly _session: WCSession;
   private readonly _chainId: string;
@@ -208,11 +210,12 @@ export class WalletConnectSigner implements KalvoraSigner {
     client: WCSignClient,
     session: WCSession,
     publicKey: string,
-    chainId: string = KALVORA_PROTONET_NETWORK
+    chainId: string = KALVORA_PROTONET_NETWORK,
+    account?: ExternalSigningAccount
   ) {
+    super(publicKey, account);
     this._client = client;
     this._session = session;
-    this.publicKey = publicKey;
     this._chainId = chainId;
   }
 
@@ -220,8 +223,7 @@ export class WalletConnectSigner implements KalvoraSigner {
    * Sign transaction bytes by sending the Kalvora sign-transaction RPC
    * (`KALVORA_WC_METHODS[1]`) request through the WalletConnect relay to the connected wallet.
    *
-   * The wallet will show an approval prompt; the returned signature
-   * is the raw Ed25519 bytes.
+   * The wallet shows its approval prompt and returns a Base64 detached signature.
    */
   async sign(data: Uint8Array): Promise<Uint8Array> {
     const result = await this._client.request<KalvoraWCSignTransactionResult>({
@@ -230,12 +232,13 @@ export class WalletConnectSigner implements KalvoraSigner {
       request: {
         method: WC_METHOD.signTransaction,
         params: {
-          transaction: toBase64(data)
+          transaction: toBase64(data),
+          ...(this.walletAddress && { walletAddress: this.walletAddress })
         }
       }
     });
 
-    return fromBase64(result.signature);
+    return this.walletAddress ? decodeAndValidateSignature(result.signature, this.publicKey, data) : fromBase64(result.signature);
   }
 
   /**
@@ -249,11 +252,12 @@ export class WalletConnectSigner implements KalvoraSigner {
       request: {
         method: WC_METHOD.signMessage,
         params: {
-          message: toBase64(message)
+          message: toBase64(message),
+          ...(this.walletAddress && { walletAddress: this.walletAddress })
         }
       }
     });
 
-    return fromBase64(result.signature);
+    return this.walletAddress ? decodeAndValidateSignature(result.signature, this.publicKey, message) : fromBase64(result.signature);
   }
 }

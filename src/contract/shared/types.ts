@@ -14,6 +14,8 @@ import type {
   MaxSupplyRelease,
   CONTRACT_TYPE
 } from '../../../proto/generated/txn_pb.js';
+import type { ProofLayout } from '../../shared/fee-calculators/proof-layout.js';
+import type { SigningKey } from '../../sign/builder.js';
 import type { GRPCConfig } from '../../types/index.js';
 
 /**
@@ -41,7 +43,7 @@ export interface CreateContractOptions {
   /** Public key identifier of the contract creator */
   publicKeyBase58Identifier: string;
   /** Private key in base58 format */
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
   /** Optional governance configuration */
   governance?: Governance;
   /** Optional restricted keys */
@@ -81,6 +83,8 @@ export interface CreateContractOptions {
   memo?: string;
   /** Optional gRPC configuration */
   grpcConfig?: GRPCConfig;
+  proofLayout?: ProofLayout;
+  nonNativeMultiplier?: number;
   /**
    * Optional nonce override. When provided, skips network nonce fetch.
    * WARNING: Manually specified nonces are not validated. Incorrect nonces will cause transaction failure.
@@ -99,7 +103,7 @@ export interface UpdateContractOptions {
   /** Public key identifier of the contract owner */
   publicKeyBase58Identifier: string;
   /** Private key in base58 format */
-  privateKeyBase58: string;
+  privateKeyBase58: SigningKey;
   /** Optional new contract name */
   name?: string;
   /** Optional governance configuration */
@@ -126,6 +130,8 @@ export interface UpdateContractOptions {
   memo?: string;
   /** Optional gRPC configuration */
   grpcConfig?: GRPCConfig;
+  proofLayout?: ProofLayout;
+  nonNativeMultiplier?: number;
   /**
    * Optional nonce override. When provided, skips network nonce fetch.
    * WARNING: Manually specified nonces are not validated. Incorrect nonces will cause transaction failure.

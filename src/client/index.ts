@@ -13,6 +13,7 @@ export {
 
 export {
   KALVORA_NETWORKS,
+  pinNetwork,
   resolveNetwork,
   type KalvoraNetwork,
   type KalvoraNetworkName

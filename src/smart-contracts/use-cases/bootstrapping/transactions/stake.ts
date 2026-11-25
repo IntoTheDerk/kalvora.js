@@ -10,6 +10,7 @@
 import type { SmartContractExecuteTXN } from '../../../../../proto/generated/txn_pb.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../../shared/network/constants.js';
 import { PROTONET_GRPC_CONFIG } from '../../../../shared/utils/testing-defaults/index.js';
+import type { SigningKey } from '../../../../sign/builder.js';
 import { sendSmartContractExecuteTXN } from '../../../execute/index.js';
 import type { BootstrappingOptions, StakeOptions } from '../types.js';
 import { createBootstrappingTransaction, resolveBootstrappingAmount } from '../utils.js';
@@ -32,7 +33,7 @@ import { createBootstrappingTransaction, resolveBootstrappingAmount } from '../u
 export async function stake(
   stakeOpts: StakeOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BootstrappingOptions = {}
 ): Promise<SmartContractExecuteTXN> {
   if (!stakeOpts.amount) throw new Error('amount is required');
@@ -61,7 +62,7 @@ export async function stake(
 export async function stakeAndSend(
   stakeOpts: StakeOptions,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BootstrappingOptions = {}
 ): Promise<string> {
   const txn = await stake(stakeOpts, publicKeyBase58Identifier, privateKeyBase58, options);

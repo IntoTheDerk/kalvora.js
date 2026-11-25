@@ -28,6 +28,7 @@ describe('itemized mint transactions', () => {
       itemId: '1',
       recipientAddress: TEST_WALLET_ADDRESSES.bob,
       votingWeight: '100',
+      safeSend: true,
       timestamp: new Date(0),
       expiry: '123',
       validFrom: '100',
@@ -49,6 +50,7 @@ describe('itemized mint transactions', () => {
     expect(txn.itemId).toBe('1');
     expect(txn.recipientAddress.length).toBeGreaterThan(0);
     expect(txn.parameters).toHaveLength(2);
+    expect(txn.base?.safeSend).toBe(true);
     expect(txn.parameters[0]?.key).toBe('name');
     expect(txn.expiry).toBe(BigInt(123));
     expect(txn.validFrom).toBe(BigInt(100));
@@ -69,6 +71,12 @@ describe('itemized mint transactions', () => {
 
     expect(txn.base?.signature).toBeInstanceOf(Uint8Array);
     expect(txn.base?.hash).toBeInstanceOf(Uint8Array);
+  });
+
+  it('rejects safe send for an NFT transfer', async () => {
+    const options = { ...commonBuildOptions, contractId: 'KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao',
+      itemId: '1', recipientAddress: TEST_WALLET_ADDRESSES.bob, safeSend: true };
+    await expect(buildNFTTXN(options as never)).rejects.toThrow('NFT transfer rejects safe_send');
   });
 
   it('validates required itemized mint fields', async () => {

@@ -10,19 +10,18 @@
   <a href="https://www.npmjs.com/package/kalvora.js"><img src="https://img.shields.io/npm/v/kalvora.js?style=flat-square&color=0a0a0a" alt="npm version"></a>
   <img src="https://img.shields.io/badge/status-alpha-red?style=flat-square" alt="status: alpha">
   <a href="https://github.com/intothederk/kalvora.js/blob/main/LICENSE"><img src="https://img.shields.io/badge/license-Apache--2.0-0a0a0a?style=flat-square" alt="Apache-2.0 license"></a>
-  <img src="https://img.shields.io/badge/node-%E2%89%A5%2020-0a0a0a?style=flat-square" alt="Node.js 20 or later">
+  <img src="https://img.shields.io/badge/node-%E2%89%A5%2020.19-0a0a0a?style=flat-square" alt="Node.js 20.19 or later">
   <img src="https://img.shields.io/badge/types-TypeScript-0a0a0a?style=flat-square" alt="TypeScript types included">
 </p>
 
 `kalvora.js` is a client SDK for the Kalvora network. It creates and restores
 wallets, builds, signs and submits every protocol transaction type, and reads
-chain state through typed gRPC-Web clients, from Node.js, browsers and React
-Native alike. Keys stay where you put them: sign in-process, or hand the
+chain state through typed gRPC-Web clients. Keys stay where you put them: sign in-process, or hand the
 unsigned bytes to a browser wallet, a WalletConnect session, a hardware device
 or any signer you write.
 
 > **Alpha.** The version is `0.0.x`, and any release may change any API. Pin an
-> exact version (`npm install kalvora.js@0.0.1-alpha.2`), test on protonet
+> exact release or reviewed commit, test on protonet
 > before anything touches real funds, and please
 > [report issues](https://github.com/IntoTheDerk/kalvora.js/issues).
 
@@ -47,7 +46,7 @@ or any signer you write.
 
 | | |
 |---|---|
-| **Wallets** | BIP-39 mnemonics, HD derivation (standard SLIP-0010 for Ed25519, Kalvora's own scheme for Ed448), addresses and public key identifiers. Available on its own as `kalvora.js/wallet`, with no network code. |
+| **Wallets** | Falcon-512 and Falcon-1024, independent address hash selection and restorable key backups. Available on its own as `kalvora.js/wallet`, with no network code. |
 | **Transactions** | Typed `build → sign → send` for every protocol transaction type: coin transfers, minting, contracts, items (NFT/SBT), governance proposals and votes, allowances, delegated voting, compliance, revoke, expense ratios, smart contracts and validator operations. |
 | **Queries** | `KalvoraQueryClient` for every client-facing read RPC (balances, nonces, contracts, fees, supply, blocks, proposals, smart-contract events), plus validator and guardian clients. Amounts are `bigint`s; failures are structured `KalvoraRpcError`s. |
 | **Workflows** | `KalvoraClient.submitAndWait`, offline and deterministic building, external signers, wallet adapters (injected provider, deep links, WalletConnect v2). |
@@ -60,143 +59,40 @@ or any signer you write.
 npm install kalvora.js
 ```
 
-Requires Node.js 20 or later, a modern browser, or React Native. The Solana
+Use Node.js 20.19 or later for the SDK toolchain. Falcon signing requires a cryptographically secure random source in the target runtime. The Solana
 bridge helpers use the optional dependencies `@solana/web3.js` and
 `@solana/spl-token`; everything else works without them.
 
 ## Quick start
 
-Create a wallet, check its balance, and send a transfer that waits for block
-inclusion:
-
-Configure the exact target chain ID before building or signing: `kal_proto`
-for Stablenet and `kal_main` for Mainnet. These are wire identifiers, not
-labels to hash or pad. The SDK has no default and does not learn the target
-ID from an incoming transaction.
+Obtain the network name, final block-zero hash and endpoints from the operator. Generate a Falcon wallet, protect its backup, and prefund its receiving address with enough native KALV to register.
 
 ```typescript
-import {
-  KalvoraClient,
-  configureTransactionContext,
-  createWallet,
-  generateMnemonicPhrase,
-  createCoinTXN,
-  partsToWhole,
-  KEY_TYPE,
-  KALVORA_NATIVE_TOKEN
-} from 'kalvora.js';
+import { FalconWallet, KalvoraClient, pinNetwork, buildWalletRegistration, signAndFinalize } from 'kalvora.js';
 
-configureTransactionContext({ chainId: ifcConfiguredChainId });
+const network = pinNetwork('protonet', 'kal_proto', trustedFinalGenesisHash);
+const wallet = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: trustedFinalGenesisHash });
+await saveToProtectedStorage(wallet.exportBackup());
+console.log(wallet.walletAddress); // Receiving address for prefunding
 
-// 1. Wallet: standard Kalvora address (base58 of the raw public key)
-const wallet = await createWallet({
-  keyType: KEY_TYPE.ED25519,
-  mnemonic: generateMnemonicPhrase(24)
-});
-
-// 2. Network: protonet over HTTPS by default
-const kalvora = new KalvoraClient();
-const { balance, denomination } = await kalvora.query.getBalanceOrZero(wallet.address, KALVORA_NATIVE_TOKEN);
-console.log(`${partsToWhole(balance, denomination)} KALV`);
-
-// 3. Build and sign a transfer (whole-token amounts), then wait for inclusion
-const txn = await createCoinTXN(
-  [{ publicKey: wallet.publicKey, privateKey: wallet.privateKey, amount: '1.5' }],
-  [{ to: recipientAddress, amount: '1.5' }],
-  KALVORA_NATIVE_TOKEN,
-  { baseFeeId: KALVORA_NATIVE_TOKEN },
-  '',
-  kalvora.grpcConfig
-);
-const result = await kalvora.submitAndWait(txn);
-console.log(result.success ? `included in block ${result.blockHeight}` : result.statusName);
-
-wallet.secureClear(); // wipe key material when you are done
+const client = new KalvoraClient({ network, grpc: { endpoint: trustedEndpoint, trustedOperatorAddress } });
+const registration = await buildWalletRegistration(wallet, { grpcConfig: client.grpcConfig });
+await signAndFinalize(registration, wallet);
+const receipt = await client.submitAndWait(registration, { verifyFinalizedBlock });
+if (!receipt.success) throw new Error(receipt.statusName);
 ```
 
-`submitAndWait` resolves when a block contains a matching processing receipt
-with an explicit status. Check `result.success` to determine execution success.
-Verify the block's finality evidence separately before treating it as confirmed.
+Supply `verifyFinalizedBlock` from your application's trusted finalized source. If registration finalizes at height H, the wallet can spend at H+1. After an ambiguous submission, reconcile the original hash, committed nonce and signing-wallet record before retrying identical signed bytes. A new Falcon signature can change the transaction hash.
 
-**Clean-genesis migration:** all signers now require the pinned chain ID,
-signature domain, and concrete transaction type before signing. Rebuild and
-re-sign old transactions; Quash and delayed-key fields are retired, and
-smart-contract spending requires explicit per-token allowances. See
-[signing and offline/multisig workflows](./src/sign/README.md) and
-[smart-contract allowances](./src/smart-contracts/README.md).
+See the [migration overview and remaining acceptance checks](./docs/protocol-migration-overview-2026-11-25.md).
 
 ## Wallets and keys
 
-### Mnemonics and wallets
+### Fresh-genesis wallets
 
-```typescript
-import {
-  createWallet,
-  deriveMultipleWallets,
-  generateMnemonicPhrase,
-  validateMnemonicPhrase,
-  KEY_TYPE
-} from 'kalvora.js';
+The wallet-only entry point exports `FalconWallet`, the two padded Falcon variants and all eleven hash choices. `FalconWallet.restore(backup)` restores the key with its selected address and network pin. BLAKE3-256 is the default. A different hash for the same key creates a separate address, balance and nonce.
 
-const mnemonic = generateMnemonicPhrase(24);        // 12, 15, 18, 21 or 24 words
-validateMnemonicPhrase(mnemonic);                   // true
-
-const wallet = await createWallet({
-  keyType: KEY_TYPE.ED25519,                        // or KEY_TYPE.ED448
-  mnemonic,
-  passphrase: '',                                   // optional BIP-39 passphrase
-  hdOptions: { accountIndex: 0 }                    // m/44'/5258'/0'/0'/0'
-});
-
-wallet.address;         // base58 address
-wallet.publicKey;       // public key identifier (A_… for Ed25519, B_… for Ed448)
-wallet.privateKey;      // base58 private key — keep secret
-wallet.derivationPath;  // "m/44'/5258'/0'/0'/0'"
-
-// Several accounts from one mnemonic (the seed is computed once)
-const accounts = await deriveMultipleWallets({ keyType: KEY_TYPE.ED25519, mnemonic, count: 5 });
-```
-
-Leave `hashTypes` unset (or pass `[]`) for the standard address. Passing hash
-types produces a legacy hashed address format.
-
-### Raw keys
-
-`deriveHDPrivateKey` returns only the 32-byte key at a path and zeroes every
-intermediate node:
-
-```typescript
-import { deriveHDPrivateKey, generateSeed, KEY_TYPE, SLIP0010_DERIVATION_PATH } from 'kalvora.js/wallet';
-
-const seed = generateSeed(mnemonic);
-const key = deriveHDPrivateKey(seed);                                       // Ed25519, m/44'/5258'/0'/0'/0'
-const key448 = deriveHDPrivateKey(seed, SLIP0010_DERIVATION_PATH, KEY_TYPE.ED448);
-try {
-  // use the keys
-} finally {
-  key.fill(0);
-  key448.fill(0);
-  seed.fill(0);
-}
-```
-
-### Lightweight entry: `kalvora.js/wallet`
-
-`kalvora.js/wallet` exports the wallet surface on its own (mnemonics, HD
-derivation, key pairs, address encoding). It depends only on `@noble/curves`,
-`@noble/hashes`, `bip39` and `bs58`, contains no network, protobuf or
-transaction code, and never touches the network, which makes it a good fit for
-a browser custody layer. It is ESM-only; CommonJS callers use the main entry,
-which exports the same functions.
-
-### Derivation
-
-Ed25519 derivation is exactly
-[SLIP-0010](https://github.com/satoshilabs/slips/blob/master/slip-0010.md), so
-any SLIP-0010 wallet derives the same Ed25519 key from the same mnemonic and
-path. No standard covers Ed448, so Ed448 uses Kalvora's own scheme. The
-byte-level specification and reference vectors are in
-[docs/guides/hd-derivation.md](./docs/guides/hd-derivation.md).
+Historical Ed25519 and Ed448 backups use the [older HD derivation scheme](./docs/guides/hd-derivation.md). Generate and register a fresh Falcon address for the new genesis. See [wallet creation and backup](./src/wallet-creation/README.md).
 
 ## Querying the network
 
@@ -243,27 +139,27 @@ transactions use `signAndFinalize`; multi-input coin transfers use
 `signCoinTXN`:
 
 ```typescript
-import { buildMintTXN, buildCoinTXN, signAndFinalize, signCoinTXN, KeyPairSigner } from 'kalvora.js';
+import { buildMintTXN, buildCoinTXN, signAndFinalize, signCoinTXN } from 'kalvora.js';
 
-const signer = new KeyPairSigner(wallet.publicKey, wallet.privateKey);
+const signer = wallet; // Registered Falcon wallet from the quick start
 
 // Mint: amounts in smallest units; nonce + feeAmountParts make it fully offline
 const mint = await buildMintTXN(
-  { contractId, amount: 5_000_000_000n, recipientAddress, publicKey: signer.publicKey },
-  { nonce: 12n, feeAmountParts: '1000' }
+  { contractId, amount: 5_000_000_000n, recipientAddress, publicKey: signer.walletAddress },
+  { grpcConfig: client.grpcConfig }
 );
-await kalvora.submit(await signAndFinalize(mint, signer));
+await client.submit(await signAndFinalize(mint, signer));
 
 // Coin transfer: whole-token amounts
 const transfer = await buildCoinTXN(
-  [{ publicKey: signer.publicKey, amount: '2' }],
+  [{ publicKey: signer.walletAddress, amount: '2' }],
   [{ to: recipientAddress, amount: '2' }],
   KALVORA_NATIVE_TOKEN,
   { baseFeeId: KALVORA_NATIVE_TOKEN },
   '',
-  kalvora.grpcConfig
+  client.grpcConfig
 );
-await kalvora.submitAndWait(await signCoinTXN(transfer, [signer]));
+await client.submitAndWait(await signCoinTXN(transfer, [signer]));
 ```
 
 `CoinTXN` amounts are whole tokens (`'1.5'`) that the SDK converts with the
@@ -274,37 +170,7 @@ permission its signer needs, and the shared options.
 
 ## Wallet adapters and external signers
 
-Any object with a `publicKey` and an async `sign(bytes)` is a `KalvoraSigner`,
-so hardware wallets, MPC services and cold storage plug straight into
-`signAndFinalize`:
-
-```typescript
-import type { KalvoraSigner } from 'kalvora.js';
-
-const signer: KalvoraSigner = {
-  publicKey: 'A_…',
-  sign: bytes => myHardwareWallet.sign(bytes) // 64-byte Ed25519 or 114-byte Ed448 signature
-};
-```
-
-In the browser, `KalvoraWalletAdapter` connects to a Kalvora wallet and gives
-you a signer. Inside a wallet's dApp browser it uses the injected provider
-(`window[KALVORA_INJECTED_PROVIDER_KEY]`); in an external browser it falls back
-to a deep-link round trip (`KALVORA_DEFAULT_DEEP_LINK`):
-
-```typescript
-import { KalvoraWalletAdapter, buildVoteTXN, signAndFinalize, sendVoteTXN, PROTONET_GRPC_CONFIG } from 'kalvora.js';
-
-const adapter = new KalvoraWalletAdapter();
-adapter.on('connect', info => console.log('connected', info)); // { publicKey, address, mode }
-await adapter.connect();
-
-const vote = await buildVoteTXN(contractId, proposalHash, adapter.publicKey!, {
-  support: true,
-  grpcConfig: PROTONET_GRPC_CONFIG
-});
-await sendVoteTXN(await signAndFinalize(vote, adapter.signer!), PROTONET_GRPC_CONFIG);
-```
+An injected provider or deep link identifies the selected account by its registered address and Falcon public key. Pass the trusted wire chain ID when creating the adapter. Build transactions with the selected address and pass the adapter's signer to `signAndFinalize` or `signCoinTXN`.
 
 For a wallet on another device, `WalletConnectSigner` signs through a
 WalletConnect v2 session negotiated with `KALVORA_WC_REQUIRED_NAMESPACES`. The
@@ -320,7 +186,7 @@ strings shared with wallet apps are exported as constants
 | Native token | `KALVORA_NATIVE_TOKEN` = `KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao` (KALV, 9 decimals) |
 | Default endpoint | `https://kal-proto.visiondynamics.ch` (gRPC-Web over HTTPS, port 443; `KALVORA_PROTONET_ENDPOINT`) |
 | Network preset | `KALVORA_NETWORKS.protonet` (the `KalvoraClient` default) |
-| HD path | `m/44'/5258'/account'/change'/address'` (SLIP-44 coin type `5258`, every segment hardened; [derivation spec](./docs/guides/hd-derivation.md)) |
+| Historical Ed HD path | `m/44'/5258'/account'/change'/address'` (SLIP-44 coin type `5258`, every segment hardened). See the [derivation spec](./docs/guides/hd-derivation.md). |
 | Protobuf packages | `kal_txn`, `kal_api`, `kal_validator` (official Kalvora protos); `kal_guardian` (bridge guardian service) |
 
 ## Documentation
@@ -346,7 +212,7 @@ function carries TSDoc. Generate the API reference with `npm run docs`
 | Import | Contents | Formats |
 |---|---|---|
 | `kalvora.js` | The full SDK: client, queries, wallets, signing, every transaction builder, adapters, use cases, raw protobuf bindings (`proto`) | ESM, CommonJS, React Native, types |
-| `kalvora.js/wallet` | Wallets and keys only: mnemonics, HD derivation, key pairs, addresses. No network or protobuf code | ESM, types |
+| `kalvora.js/wallet` | Offline Falcon keys, address selection, signing, backup and restore, plus historical Ed mnemonic and HD derivation tools | ESM, types |
 
 Every public API is exported from one of these two entry points; deep imports
 into `dist/` are not supported.
@@ -355,9 +221,9 @@ into `dist/` are not supported.
 
 | Area | Status |
 |------|--------|
-| Wallets, key derivation, signing | Ed25519 derivation is SLIP-0010 and pinned by the official test vectors; Ed448 derivation is pinned by Kalvora vectors |
+| Wallets and signing | Fresh-genesis Falcon addresses and registration proofs are tested against the validator vectors. Historical Ed derivation has separate test vectors. |
 | Transaction builders (`build*` / `create*` / `send*`) | Alpha: shapes may still change in any release |
-| Query clients (`KalvoraQueryClient`, validator, guardian) | Alpha: verified read-only against a protonet node |
+| Query clients (`KalvoraQueryClient`, validator, guardian) | Alpha. Fresh-genesis registry, receipt and governance reads have in-memory RPC coverage. Live rehearsal is pending. |
 | Wallet adapters | Alpha: protocol constants are fixed; the adapter API may change |
 | Use cases (`staking`, `bootstrapping`, `dex`, bridge, `smartSwap`) | Experimental: depend on contract deployments that may differ per network |
 | Wire protocol (`proto`) | Mirrors the official protobuf definitions; changes when the protocol does |
@@ -393,8 +259,7 @@ and RPC code runs against ConnectRPC's in-memory transport.
   belong in query strings, analytics, error reports or console output. The
   SDK's logger redacts known secret fields, but it cannot protect values you
   log yourself.
-- **Wipe key material.** Call `wallet.secureClear()` when a wallet object is
-  no longer needed, and zero raw keys and seeds (`key.fill(0)`) after use.
+- **Protect backups.** A Falcon backup contains the unencrypted secret key. Store it in the wallet's protected key store and clear any caller-owned raw key or seed buffers after use.
 - **HTTPS only.** The transport uses HTTPS on port 443 and never silently
   downgrades to HTTP. `fallbackToHttp` works only for loopback and private
   development hosts, and endpoint URLs with embedded credentials are rejected.

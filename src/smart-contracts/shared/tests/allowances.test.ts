@@ -2,10 +2,24 @@ import { fromBinary, toBinary } from '@bufbuild/protobuf';
 import { describe, expect, it } from 'vitest';
 
 import { SmartContractAllowanceSchema } from '../../../../proto/generated/txn_pb.js';
+import { GENESIS_CONTRACT_IDS } from '../../../protocol/contract-id.js';
 import { KALVORA_NATIVE_TOKEN } from '../../../shared/network/constants.js';
-import { buildSmartContractAllowances, type SmartContractAllowanceInput } from '../allowances.js';
+import { allowancesForDebits, buildSmartContractAllowances, type SmartContractAllowanceInput } from '../allowances.js';
 
 describe('smart-contract outflow allowances', () => {
+  it('combines nested caller transfers and fees by asset with checked uint256 totals', () => {
+    const token = GENESIS_CONTRACT_IDS.PREGOV;
+    const large = 1n << 160n;
+    const allowances = allowancesForDebits(
+      [{ contractId: token, amountParts: large }, { contractId: token, amountParts: '7' }],
+      [{ contractId: KALVORA_NATIVE_TOKEN, amountParts: '3' }, { contractId: token, amountParts: '2' }]
+    );
+    expect(allowances).toEqual([
+      { contractId: token, allowedAmount: String(large + 9n) }, { contractId: KALVORA_NATIVE_TOKEN, allowedAmount: '3' }
+    ]);
+    expect(() => allowancesForDebits([{ contractId: token, amountParts: (1n << 256n) - 1n }],
+      [{ contractId: token, amountParts: 1n }])).toThrow(/uint256/);
+  });
   it('leaves omitted and empty lists with zero caller-wallet spending permission', () => {
     expect(buildSmartContractAllowances(undefined)).toEqual([]);
     expect(buildSmartContractAllowances([])).toEqual([]);

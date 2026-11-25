@@ -22,6 +22,7 @@ vi.mock('../../../shared/fee-calculators/universal-fee-calculator.js', () => ({
 
 import { KALVORA_NATIVE_TOKEN } from '../../../shared/network/constants.js';
 import { ED25519_TEST_KEYS } from '../../../test-utils/keys.test.js';
+import { FalconWallet } from '../../../wallet-creation/falcon.js';
 import { ParamType } from '../../shared/parameters.js';
 import {
   buildSmartContractInstantiateTXN,
@@ -32,6 +33,18 @@ const decoder = new TextDecoder();
 const { publicKey, privateKey } = ED25519_TEST_KEYS.alice;
 
 describe('buildSmartContractInstantiateTXN', () => {
+  it('signs a registered instantiation offline with its exact finite outflow and root fee cap', async () => {
+    const signer = FalconWallet.generate({ networkName: 'kal_proto', genesisHash: '12'.repeat(32) });
+    const txn = await createSmartContractInstantiateTXN({
+      smartContractName: 'treasury', instance: 0, publicKeyBase58Identifier: signer.walletAddress,
+      privateKeyBase58: signer, nonce: 1, feeAmountParts: '100', gasFeeInUsd: 0,
+      allowances: [{ contractId: KALVORA_NATIVE_TOKEN, allowedAmount: '37' }]
+    });
+    expect(txn.base?.chainId).toEqual(signer.chainId);
+    expect(txn.base?.feeAmount).toBe('100');
+    expect(txn.base?.signature?.length).toBe(666);
+    expect(txn.allowances[0]?.allowedAmount).toBe('37');
+  });
   it('builds an unsigned smart contract instantiate transaction', async () => {
     const txn = await buildSmartContractInstantiateTXN({
       smartContractName: 'hello_contract',

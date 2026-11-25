@@ -20,6 +20,7 @@ import {
   getPublicKeyBytes
 } from '../shared/crypto/address-utils.js';
 import { KEY_TYPE } from '../shared/crypto/constants.js';
+import { decodeWalletAddress } from '../shared/crypto/falcon-address.js';
 import {
   UniversalFeeCalculator,
   type FeeConfigHelper
@@ -31,9 +32,10 @@ import {
   KALVORA_NATIVE_TOKEN
 } from '../shared/network/constants.js';
 import { buildStandardBaseTXN, getAddressAndNonce } from '../shared/tx/base.js';
+import type { StandardTXNOptions } from '../shared/tx/standard.js';
 import { submitStandardTransaction } from '../shared/tx/standard.js';
 import { PROTONET_GRPC_CONFIG } from '../shared/utils/testing-defaults/index.js';
-import { signWithKey } from '../sign/finalize.js';
+import { optionsForSigner, signBuiltTransaction, type SigningKey } from '../sign/builder.js';
 import type { GRPCConfig } from '../types/index.js';
 
 // Text proposal fields may contain horizontal tab and line feed only where allowed below.
@@ -108,6 +110,8 @@ export interface ProposalConstructionContext {
 }
 
 export interface BuildTextGovernanceProposalTXNOptions {
+  proofLayout?: StandardTXNOptions['proofLayout'];
+  proposalStages?: StandardTXNOptions['proposalStages'];
   constructionContext: ProposalConstructionContext;
   grpcConfig?: GRPCConfig;
   nonce?: string | number | bigint;
@@ -136,7 +140,7 @@ export async function buildTextGovernanceProposalTXN(
   if (
     typeof publicKeyBase58Identifier !== 'string' ||
     publicKeyBase58Identifier.length === 0 ||
-    publicKeyBase58Identifier.length > MAXIMUM_PUBLIC_KEY_IDENTIFIER_CHARACTERS ||
+    (publicKeyBase58Identifier.includes('_') && publicKeyBase58Identifier.length > MAXIMUM_PUBLIC_KEY_IDENTIFIER_CHARACTERS) ||
     publicKeyBase58Identifier !== publicKeyBase58Identifier.trim()
   ) {
     throw new TypeError('publicKey identifier is required and must be bounded canonical text');
@@ -146,7 +150,8 @@ export async function buildTextGovernanceProposalTXN(
   }
 
   const contractId = validateContractId(input.contractId, 'contractId');
-  validatePublicKeyLength(publicKeyBase58Identifier);
+  if (publicKeyBase58Identifier.includes('_')) validatePublicKeyLength(publicKeyBase58Identifier);
+  else decodeWalletAddress(publicKeyBase58Identifier);
   const walletAddress = generateAddressFromPublicKey(publicKeyBase58Identifier);
   validateConstructionContext(
     options.constructionContext,
@@ -192,6 +197,7 @@ export async function buildTextGovernanceProposalTXN(
 
   const base = buildStandardBaseTXN({
     publicKeyId: publicKeyBase58Identifier,
+    ...(grpcConfig.transactionContext ? { context: grpcConfig.transactionContext } : {}),
     nonce,
     ...(memo !== undefined ? { memo } : {}),
     ...(options.timestamp !== undefined ? { timestamp: options.timestamp } : {}),
@@ -218,6 +224,8 @@ export async function buildTextGovernanceProposalTXN(
     protoObject: proposal,
     tokenInfoMap: new Map(),
     baseFeeId: feeId ?? KALVORA_NATIVE_TOKEN,
+    ...(options.proofLayout ? { proofLayout: options.proofLayout } : {}),
+    ...(options.proposalStages ? { proposalStages: options.proposalStages } : {}),
     ...(options.grpcConfig !== undefined ? { grpcConfig: options.grpcConfig } : {}),
     ...(options.feeAmountParts !== undefined
       ? { baseFeeParts: options.feeAmountParts }
@@ -474,14 +482,15 @@ function assertUnsignedTextOnlyProposal(proposal: GovernanceProposal): void {
 export async function createTextGovernanceProposalTXN(
   input: TextGovernanceProposalInput,
   publicKeyBase58Identifier: string,
-  privateKeyBase58: string,
+  privateKeyBase58: SigningKey,
   options: BuildTextGovernanceProposalTXNOptions
 ): Promise<GovernanceProposal> {
-  if (typeof privateKeyBase58 !== 'string' || privateKeyBase58.trim() === '') {
+  if (!privateKeyBase58 || (typeof privateKeyBase58 === 'string' && privateKeyBase58.trim() === '')) {
     throw new Error('privateKey is required');
   }
-  const proposal = await buildTextGovernanceProposalTXN(input, publicKeyBase58Identifier, options);
-  return signWithKey(proposal, privateKeyBase58, publicKeyBase58Identifier);
+  const buildOptions = optionsForSigner(options, privateKeyBase58);
+  const proposal = await buildTextGovernanceProposalTXN(input, publicKeyBase58Identifier, buildOptions);
+  return signBuiltTransaction(proposal, privateKeyBase58, publicKeyBase58Identifier, buildOptions.grpcConfig?.transactionContext);
 }
 
 /**
