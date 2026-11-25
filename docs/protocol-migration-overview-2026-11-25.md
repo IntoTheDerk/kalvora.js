@@ -2,7 +2,7 @@
 
 The SDK can generate a Falcon wallet, register it, and spend seven kalvs from that address in the following block. The Linux validator accepted both SDK-generated protobuf messages and reproduced the resulting balance and nonce after replay and restart. **The live network rehearsal is deferred.**
 
-This overview covers the SDK changes for validator 200030 and attestation protocol 33. The [original migration handoff](kalvora-js-protocol-handoff-2026-11-25/documents/howto/kalvora_js_protocol_handoff.md) records the validator revision and launch profile.
+This overview covers the SDK changes for validator 200030 and attestation protocol 33. Review and CI are tracked in [pull request #13](https://github.com/IntoTheDerk/kalvora.js/pull/13). The [original migration handoff](kalvora-js-protocol-handoff-2026-11-25/documents/howto/kalvora_js_protocol_handoff.md) records the validator revision and launch profile.
 
 ## What changed
 
@@ -13,7 +13,7 @@ This overview covers the SDK changes for validator 200030 and attestation protoc
 | Network identity | Derive the 32-byte wire chain ID from the network name and trusted final block-zero hash. Builders set the signed context before pricing. Signers verify the chain and intended transaction type. The operator supplies the deployment pin. |
 | Registration and payment | Build a self-funded or sponsored wallet registration. Use the selected wallet address in subsequent transactions. Register a policy after its members and use its own nonce. Coin authorizations support individual or policy proofs and separate base-fee and contract-fee shares. Coin, Mint and ItemizedMint expose safe send. NFT transfers reject that option. |
 | Signing and fees | Single-key owners, selected policy witnesses, sponsors and validator operators have distinct signature placement. The final SHA3-256 hash includes all proofs. Fee sizing uses encoded placeholders for the selected proof shapes and the decimal cap. Root authentication limits include nested children. See [signing](../src/sign/README.md). |
-| RPCs and receipts | Submit a registration, resolve a registered key or policy, and page active proposal voters against a state digest. Match status-bearing receipts by hash, decode wallet registrations, governance group markers and failed executions, and verify signed responses against an expected registered operator. See [query clients](../src/query/README.md). |
+| RPCs and receipts | Submit a registration, resolve a registered key or policy, and page active proposal voters against a state digest. Match status-bearing receipts by hash, decode governance group markers and failed executions, and verify signed responses against the expected operator. With a finality verifier, polling revisits a provisional height so a replacement block can supply the receipt. See [query clients](../src/query/README.md). |
 | Governance | Build granular proposals and ballots, preserve a negative vote or option zero, price council steps, and represent ordered PRE and POST review. Regular results use the frozen per-instrument ratios and integer arithmetic. |
 | Contracts and grants | Derive wallet-created IDs with the V2 domain and the full address. Internal governance and smart-contract creators retain the V1 domain. Validate typed direct grants, the single parent and a direct recovery authority. A nonempty update replaces the whole grant list. See [instrument contracts](../src/contract/README.md). |
 | Validator operations | Assign separate registered owner and operator wallets. Both sign the same assignment bytes and the final hash covers both proofs. Deregistration carries only the owner proof. Heartbeats use the operator signature with the owner's nonce and enforce memo, size and fee-field limits. Validator records expose separate timestamps for signed heartbeats and producer liveness. See [validator operations](../src/validator-ops/README.md). |
@@ -28,6 +28,10 @@ This overview covers the SDK changes for validator 200030 and attestation protoc
 
 The [quick start](../README.md#quick-start) shows a self-funded registration. The [fixture exporter](../scripts/export-falcon-interop.ts) builds the complete registration and payment offline with a synthetic chain pin.
 
+For application code, see the [wallet example](../src/wallet-creation/examples/basic-usage.ts), [registered vote](../src/vote/examples/registered-vote.ts), [instrument contract example](../src/contract/create/examples/example.ts) and [governance proposals](../src/proposal/README.md). Retained Ed examples are labeled as historical and point to the current signing flow.
+
+For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts) can compare the served genesis hash and verify the expected operator's signed contract response. The separate [proposal submission test](../src/proposal/tests/live-coin-proposal.test.ts) requires explicit opt-in and a funded, registered protonet wallet. Its header lists the environment variables.
+
 ## Verification
 
 | Check | Evidence |
@@ -36,7 +40,7 @@ The [quick start](../README.md#quick-start) shows a self-funded registration. Th
 | Wallet runtimes | Node 24.13 and headless Microsoft Edge exercised local Falcon signing. Edge generated, backed up, restored, signed and verified both variants through the wallet entry point. The declared Node floor is 20.19. |
 | SDK to Linux validator | Passed the native `falcon-wallet-settlement-test --client-interop` with a freshly signed registration at nonce 1 and a seven-kalv payment at authorization nonce 2. The fixture checked execution, balances, nonces, replay and restart persistence. A first attempt exposed the first-balance-row fee. The exporter now supplies the fixture's adequate cap. |
 | Fee boundary | The local native fixture accepted caps of 1,779 parts for registration and 200,000,000,000,001,031 parts for Coin with its new balance row. Independently reducing either cap by one part and re-signing caused rejection. These amounts describe this fixture and fee schedule. |
-| SDK validation | `npm run validate` passed type-checking and lint with zero warnings. The full suite passed 1,219 tests. Six opt-in network tests were skipped. |
+| SDK validation | `npm run validate` passed type-checking and lint with zero warnings. The full suite passed 1,220 tests. Six opt-in network tests were skipped. |
 | Package build | `npm run build` succeeded. `npm run build:validate-bundles` passed all 16 checks, including browser loading and parity across the 302 CommonJS and ESM exports. |
 
 ## Remaining work

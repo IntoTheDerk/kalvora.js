@@ -712,7 +712,7 @@ export class KalvoraQueryClient {
   /**
    * Wait until a transaction has an explicit processing receipt in a block, scanning forward from
    * `fromHeight`.
-   * Verify the block's finality evidence separately before treating it as confirmed.
+   * With a finality verifier, re-poll each provisional height until its block is finalized.
    *
    * @param txnHash - Hex transaction hash (as returned by `send*` functions)
    * @throws Error on timeout or abort
@@ -739,14 +739,11 @@ export class KalvoraQueryClient {
       } catch (error) {
         if (!isNotFound(error)) throw error;
       }
-      if (block) {
+      if (block && (!options.verifyFinalizedBlock || await options.verifyFinalizedBlock(block))) {
         const result = findTransactionResult(block, txnHash);
-        if (!result) {
-          height += 1n;
-          if (Date.now() <= deadline) continue;
-        } else if (!options.verifyFinalizedBlock || await options.verifyFinalizedBlock(block)) {
-          return { ...result, blockHeight: height };
-        }
+        if (result) return { ...result, blockHeight: height };
+        height += 1n;
+        if (Date.now() <= deadline) continue;
       }
       if (Date.now() + pollIntervalMs > deadline) {
         throw new Error(`Timed out after ${timeoutMs} ms waiting for transaction ${txnHash} (searched up to height ${height - 1n})`);

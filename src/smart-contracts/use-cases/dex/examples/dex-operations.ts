@@ -1,4 +1,6 @@
 /**
+ * Historical Ed contract example. See src/smart-contracts/README.md for a registered Falcon caller, signed gas cap and token allowances.
+ *
  * Kalvora DEX Operations — End-to-End Example
  * 
  * Demonstrates a complete DEX lifecycle using user-friendly amounts.

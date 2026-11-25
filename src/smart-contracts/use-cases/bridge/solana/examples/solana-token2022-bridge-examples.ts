@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * Solana Token-2022 Bridge Examples
  *
  * Demonstrates the Token-2022-specific paths. Classic SPL and native SOL keep

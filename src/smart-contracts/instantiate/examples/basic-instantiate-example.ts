@@ -1,4 +1,6 @@
 /**
+ * Historical Ed contract example. See src/smart-contracts/README.md for a registered Falcon caller, signed gas cap and token allowances.
+ *
  * SmartContractInstantiateTXN examples.
  *
  * These examples use manual nonce and fee values so they can be built offline.

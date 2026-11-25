@@ -750,6 +750,24 @@ describe('block queries', () => {
       expect(calls).toEqual([10n, 11n, 12n, 13n]);
     });
 
+    it('re-polls a provisional block without a match and finds the receipt in its finalized replacement', async () => {
+      let reads = 0;
+      const { calls, query } = chain(11, height => {
+        if (height === 10n) return blockWithResult(height);
+        const block = blockWithResult(height, ++reads === 1 ? undefined : 0x77);
+        if (block.blockHeader) block.blockHeader.hash = hash32(reads === 1 ? 0x01 : 0x02);
+        return block;
+      });
+      const verifyFinalizedBlock = vi.fn((block: Block) =>
+        block.blockHeader?.blockHeight === 10n || block.blockHeader?.hash[0] === 0x02);
+      const receipt = await query.waitForTransaction(TX, {
+        fromHeight: 10, pollIntervalMs: 1, timeoutMs: 1000, verifyFinalizedBlock
+      });
+      expect(receipt).toMatchObject({ hash: TX, blockHeight: 11n, success: true });
+      expect(calls).toEqual([10n, 11n, 11n]);
+      expect(verifyFinalizedBlock).toHaveBeenCalledTimes(3);
+    });
+
     it('waitForTransaction skips a matching hash-only row without a processing status', async () => {
       const { calls, query } = chain(20, height => height === 10n
         ? create(BlockSchema, {

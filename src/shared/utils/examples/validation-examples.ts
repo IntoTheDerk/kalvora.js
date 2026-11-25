@@ -4,6 +4,7 @@
  * Demonstrates how to use the shared validation utilities.
  */
 
+import { GENESIS_CONTRACT_IDS } from '../../../protocol/contract-id.js';
 import { isValidContractId, validateContractId, validateAmount } from '../validation.js';
 
 /**
@@ -13,7 +14,7 @@ export function exampleContractIdValidation(): void {
   console.log('🔍 Example 1: Contract ID Validation');
   
   // Valid contract IDs
-  const validIds = ['KALXvxhUMJERCse4e6b2jeXFkcqqpiUByQQckvPZm4szmF3Ao', 'BTC1234', 'ETH9999'];
+  const validIds = [GENESIS_CONTRACT_IDS.KALV, GENESIS_CONTRACT_IDS.PREGOV, '$sol-USDC'];
   
   validIds.forEach(id => {
     const isValid = isValidContractId(id);

@@ -1,4 +1,6 @@
 /**
+ * Historical bridge example using earlier Kalvora keys or recipient fixtures. For registered Kalvora calls and fee allowances, see src/smart-contracts/README.md and docs/guides/getting-started.md.
+ *
  * Guardian Bridge Examples
  * 
  * This file demonstrates how to use the guardian VAA (Verified Action Approval) functions

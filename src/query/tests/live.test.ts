@@ -1,15 +1,14 @@
 /**
- * LIVE, read-only query tests against a real Kalvora node.
- *
- * Skipped unless `KALVORA_LIVE_ENDPOINT` is set, e.g.
- *
- *   KALVORA_LIVE_ENDPOINT=https://kal-proto.visiondynamics.ch npx vitest run src/query/tests/live.test.ts
- *
- * Only read RPCs are used. This file never builds, signs or submits a transaction.
+ * Read-only smoke tests. Set KALVORA_LIVE_ENDPOINT to a finalized API gateway.
+ * To verify a deployment, also supply its independently trusted
+ * KALVORA_LIVE_NETWORK_NAME, KALVORA_LIVE_GENESIS_HASH and KALVORA_LIVE_OPERATOR_ADDRESS.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 
+import { decodeWalletAddress } from '../../shared/crypto/falcon-address.js';
+import { deriveChainId } from '../../shared/network/chain-id.js';
 import { KALVORA_NATIVE_TOKEN } from '../../shared/network/constants.js';
+import { bytesToHex } from '../../shared/utils/byte-utils.js';
 import { createQueryClient } from '../api-client.js';
 import { summarizeBlock } from '../decoders.js';
 
@@ -18,9 +17,33 @@ vi.unmock('@connectrpc/connect-web');
 
 const ENDPOINT = process.env.KALVORA_LIVE_ENDPOINT ?? '';
 
-describe.skipIf(!ENDPOINT)(`live query (${ENDPOINT || 'KALVORA_LIVE_ENDPOINT not set'})`, () => {
-  const query = createQueryClient({ endpoint: ENDPOINT });
+const NETWORK = process.env.KALVORA_LIVE_NETWORK_NAME ?? '';
+const GENESIS = process.env.KALVORA_LIVE_GENESIS_HASH ?? '';
+const OPERATOR = process.env.KALVORA_LIVE_OPERATOR_ADDRESS ?? '';
+const PINNED = Boolean(NETWORK || GENESIS || OPERATOR);
+
+describe.skipIf(!ENDPOINT)('live read-only query', () => {
   const LIVE_TIMEOUT = 60_000;
+  let query: ReturnType<typeof createQueryClient>;
+
+  beforeAll(async () => {
+    if (!PINNED) {
+      query = createQueryClient({ endpoint: ENDPOINT });
+      return;
+    }
+    if ((NETWORK !== 'kal_proto' && NETWORK !== 'kal_main') || !/^[0-9a-f]{64}$/iu.test(GENESIS) || !OPERATOR) {
+      throw new Error('Pinned reads require the network name, final genesis hash, and registered operator address');
+    }
+    expect(new URL(ENDPOINT).protocol).toBe('https:');
+    decodeWalletAddress(OPERATOR);
+    query = createQueryClient({
+      endpoint: ENDPOINT, trustedOperatorAddress: OPERATOR,
+      transactionContext: { chainId: deriveChainId(NETWORK, GENESIS) }
+    });
+    const header = (await query.getBlock({ height: 0 })).blockHeader;
+    expect(header?.blockHeight).toBe(0n);
+    expect(header?.hash && bytesToHex(header.hash)).toBe(GENESIS.toLowerCase());
+  }, LIVE_TIMEOUT);
 
   it('getAuthorizedFeeTokens includes the native token', async () => {
     const tokens = await query.getAuthorizedFeeTokens();
@@ -35,17 +58,19 @@ describe.skipIf(!ENDPOINT)(`live query (${ENDPOINT || 'KALVORA_LIVE_ENDPOINT not
   }, LIVE_TIMEOUT);
 
   it('getContract(KALVORA_NATIVE_TOKEN) returns the KALV definition', async () => {
-    const info = await query.getContract(KALVORA_NATIVE_TOKEN);
+    const operator = PINNED ? await query.resolveOperator(OPERATOR) : undefined;
+    const info = await query.getContract(KALVORA_NATIVE_TOKEN, operator);
+    expect(info.operatorVerified).toBe(PINNED);
     expect(info.contract.symbol).toBe('KALV');
     expect(info.contract.name).toBe('Kalvora');
   }, LIVE_TIMEOUT);
 
   it('getBlock({ height: 0 }) returns genesis and summarizeBlock decodes it', async () => {
     const block = await query.getBlock({ height: 0 });
-    expect(block.blockHeader?.blockHeight ?? 0n).toBe(0n);
+    expect(block.blockHeader?.blockHeight).toBe(0n);
     const summary = summarizeBlock(block);
     expect(summary.height).toBe(0n);
-    expect(summary.hash).toMatch(/^[0-9a-f]*$/u);
+    expect(summary.hash).toMatch(/^[0-9a-f]{64}$/u);
     expect(summary.transactionCount).toBeGreaterThanOrEqual(0);
     expect(summary.results.length).toBeGreaterThanOrEqual(0);
   }, LIVE_TIMEOUT);
