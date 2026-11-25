@@ -59,6 +59,8 @@ For the later rehearsal, the [read-only checks](../src/query/tests/live.test.ts)
 
 ## Testing the alpha.3 package in dev-client
 
+For the client files to change, legacy backup and test-fixture mappings, and a feature-by-feature acceptance checklist, see the [dev-client migration guide for alpha.3](dev-client-migration-alpha.3.md).
+
 `0.0.1-alpha.3` follows the existing alpha series. To try the local package, run `npm pack` in the SDK checkout after `npm run validate` and `npm run build`. From the sibling `dev-client` directory, install the resulting file and check the loaded SDK version before starting Electron.
 
 ```powershell
